@@ -8,7 +8,7 @@ from app.voice.tts_elevenlabs import ElevenLabsTts
 
 
 class PipelineVoiceProvider(VoiceProvider):
-    """Browser mic -> streaming STT (ElevenLabs Scribe or Deepgram) ... ElevenLabs TTS -> browser."""
+    """Browser mic -> streaming STT (ElevenLabs or Deepgram) ... ElevenLabs TTS -> browser."""
 
     name = "pipeline"
     audio_input = True
