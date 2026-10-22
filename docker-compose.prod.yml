@@ -2,7 +2,9 @@ name: recall-prod
 
 # Production stack for a single cloud VM. Only Caddy publishes ports (80/443).
 # Usage: cp .env.prod.example .env && edit it, then
-#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.prod.yml up -d --build     (builds on this machine; needs ~2 GB RAM)
+# Small VMs: GitHub Actions builds the images and pushes them to GHCR; the VM only pulls them
+#   IMAGE_TAG=<commit sha> docker compose -f docker-compose.prod.yml pull && ... up -d --no-build
 services:
   caddy:
     image: caddy:2
@@ -37,6 +39,7 @@ services:
       retries: 20
 
   backend:
+    image: ghcr.io/vaibhavbansal26/recall-backend:${IMAGE_TAG:-latest}
     build: ./backend
     restart: unless-stopped
     env_file: ${ENV_FILE:-.env}
@@ -54,6 +57,7 @@ services:
         condition: service_healthy
 
   frontend:
+    image: ghcr.io/vaibhavbansal26/recall-frontend:${IMAGE_TAG:-latest}
     build:
       context: ./frontend
       target: prod

@@ -14,7 +14,7 @@ they are synced by construction. Everything is served from a single HTTPS addres
 Only ports 80 and 443 are open. Postgres and the app containers are not reachable from outside.
 
 ## 1. What you need
-- A VM: Ubuntu 24.04, 2 GB RAM, 20 GB disk is plenty (about 5 to 10 USD a month).
+- A VM: Ubuntu 24.04, 2 GB RAM, 20 GB disk is plenty (about 5 to 10 USD a month). A **1 GB** Droplet also works if the images are built by GitHub Actions (see "Automatic deploys") and you add swap (below). 512 MB is too small.
 - A domain or subdomain you control, with an **A record** pointing at the VM's IP.
 - Optional now, needed for real voice: ElevenLabs (listening and speaking), Anthropic and Voyage (embeddings) API keys.
 
@@ -95,10 +95,23 @@ Also enable your provider's snapshot or backup feature if it has one.
 - Notes and voice transcripts are stored on, and sent through, a third-party VM and the AI providers
   you enable. Choose accordingly.
 
+## Small VM (1 GB): swap
+
+Add 2 GB of swap once, so a memory spike does not kill Postgres:
+```bash
+fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+```
+Do not run `make prod-up` on a 1 GB VM: building the frontend there runs out of memory. Use the
+automatic deploys below, which build on GitHub and only pull on the VM. For the very first start,
+push to `main` (or run the workflow by hand) and let it deploy.
+
 ## Automatic deploys (GitHub Actions)
 
-Every push to `main` runs `.github/workflows/deploy.yml`: it SSHes to the VM, runs
-`git reset --hard origin/main` and `make prod-up`, then waits for `/healthz`. The `.env` on the VM is
+Every push to `main` runs `.github/workflows/deploy.yml`: GitHub builds the backend and frontend images
+and pushes them to GitHub Container Registry (tagged with the commit), then the job SSHes to the VM,
+which pulls those images and restarts (`up -d --no-build`), then waits for `/healthz`. To roll back, run the
+same compose command on the VM with `IMAGE_TAG=<an older commit sha>`. The `.env` on the VM is
 untracked, so deploys never touch your keys. Database migrations run when the backend restarts.
 
 One-time setup:
@@ -118,5 +131,5 @@ One-time setup:
 5. Delete the local `recall_deploy` files once the secret is saved. Run the workflow by hand from the
    **Actions** tab to test it.
 
-A failed deploy leaves the previous containers running. This does not run the tests first; add a test job
+A failed build or pull leaves the previous containers running. This does not run the tests first; add a test job
 that the deploy `needs` once you want that gate.
