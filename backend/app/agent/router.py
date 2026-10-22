@@ -52,6 +52,19 @@ _EXPLAIN = _rx(
     r"what is|what'?s|what are|how does|how do|how is|why does|why do|why is)\s+(.+?)[.?!]?\s*$"
 )
 
+_INGEST_START = _rx(
+    r"\b(what did you (file|add)|what'?s new|any new (material|sources?|notes)|"
+    r"review (the )?(new )?(material|sources?)|what (was|got) filed|new material)\b"
+)
+_INGEST_COMMANDS = [
+    ("end", _rx(r"\b(later|not now|stop|skip|leave it|cancel)\b")),
+    ("undo", _rx(r"\b(no|undo|remove|discard|reject|get rid)\b")),
+    (
+        "approve",
+        _rx(r"\b(yes|yeah|yep|approve|confirm|keep|accept|looks good|sounds good|go ahead)\b"),
+    ),
+]
+
 _QUIZ_COMMANDS = [
     ("end", _rx(r"\b(stop|end|quit|exit|that'?s enough|no more)\b")),
     ("skip", _rx(r"\b(skip|pass|next question)\b")),
@@ -86,11 +99,19 @@ def route_by_rules(text: str, current: Mode) -> Route | None:
                 return Route(Mode.recall_quiz, command=command)
         return Route(Mode.recall_quiz, command="answer")  # sticky: this is an answer
 
+    if current == Mode.ingest_review:
+        for command, pattern in _INGEST_COMMANDS:
+            if pattern.search(text) and len(text.split()) <= 8:
+                return Route(Mode.ingest_review, command=command)
+        return Route(Mode.ingest_review, command="repeat")
+
     if current == Mode.read_back:
         for command, pattern in _READ_COMMANDS:
             if pattern.search(text) and len(text.split()) <= 6:
                 return Route(Mode.read_back, command=command)
 
+    if _INGEST_START.search(text):
+        return Route(Mode.ingest_review, command="start")
     if m := _READ_BACK.search(text):
         return Route(Mode.read_back, topic=_clean_topic(m.group(1)), command="start")
     if _READ_BACK_ANY.search(text):
@@ -122,7 +143,7 @@ async def route_turn(
         schema=RouteDecision,
         session_id=session_id,
     )
-    # Teach-back and ingest review have no node yet; treat them as the nearest working mode.
-    if decision.mode in (Mode.teach_back, Mode.ingest_review):
+    # Teach-back has no node yet; treat it as the nearest working mode.
+    if decision.mode == Mode.teach_back:
         return Route(Mode.capture)
     return Route(decision.mode, topic=decision.topic)

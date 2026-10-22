@@ -141,3 +141,68 @@ class Conv:
 
     def spoken(self) -> str:
         return " ".join(e["text"] for e in self.of("assistant_delta"))
+
+
+# ---- ingestion fixtures ----
+
+import textwrap  # noqa: E402
+
+
+def make_pdf(text: str) -> bytes:
+    """A minimal one-page PDF containing `text` (enough for pypdf to extract it)."""
+    escape = lambda s: s.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")  # noqa: E731
+    lines = textwrap.wrap(text, 90)[:55]
+    stream = (
+        "BT /F1 9 Tf 11 TL 30 800 Td "
+        + " T* ".join(f"({escape(line)}) Tj" for line in lines)
+        + " ET"
+    )
+    objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Contents 4 0 R "
+        "/Resources << /Font << /F1 5 0 R >> >> >>",
+        f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for i, body in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += f"{i} 0 obj\n{body}\nendobj\n".encode()
+    xref = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
+    for off in offsets:
+        out += f"{off:010d} 00000 n \n".encode()
+    out += (
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    )
+    return bytes(out)
+
+
+ARTICLE_PARAGRAPHS = [
+    "Retrieval augmented generation fetches relevant documents before the model writes an answer, "
+    "which grounds the response in real sources and reduces made up details in the final output.",
+    "Chunk size is a trade off between recall and precision because smaller chunks match queries "
+    "more exactly while larger chunks keep more surrounding context for the model to read.",
+    "A reranking step reorders the retrieved chunks with a slower and more accurate model so that "
+    "the best evidence appears first in the prompt that the language model receives.",
+    "Embeddings map text into vectors so that similar meanings land close together, and vector "
+    "search then finds the nearest chunks to a query using cosine similarity between them.",
+    "Evaluation of a retrieval system should measure both whether the right chunks were found and "
+    "whether the final answer actually used them faithfully without adding unsupported claims.",
+    "Caching frequent queries and their retrieved context can cut latency and cost noticeably "
+    "while still keeping answers fresh when the underlying documents change only occasionally.",
+]
+
+
+def article_html(title: str = "RAG in practice", paragraphs: list[str] | None = None) -> str:
+    body = "".join(f"<p>{p}</p>" for p in (paragraphs or ARTICLE_PARAGRAPHS))
+    return (
+        f"<html><head><title>{title} - Some Blog</title>"
+        f'<meta property="og:title" content="{title}"></head><body>'
+        "<nav>Home About Contact Subscribe</nav><header>Site header banner</header>"
+        f"<article><h1>{title}</h1>{body}</article>"
+        "<aside>Related posts you may like</aside><footer>Copyright footer text</footer>"
+        "<script>var tracking = 1;</script></body></html>"
+    )

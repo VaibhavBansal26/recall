@@ -319,6 +319,141 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Sources */
+        get: operations["list_sources_api_sources_get"];
+        put?: never;
+        /**
+         * Create Source
+         * @description Queue a link or pasted text for ingestion. The same link/text twice is not duplicated.
+         */
+        post: operations["create_source_api_sources_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sources/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Source
+         * @description Upload a PDF (used by the n8n inbox workflow).
+         */
+        post: operations["upload_source_api_sources_upload_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sources/{source_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Source */
+        get: operations["get_source_api_sources__source_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sources/{source_id}/track": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Choose Track
+         * @description Answer "which track does this belong to?" when classification was not confident.
+         */
+        post: operations["choose_track_api_sources__source_id__track_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sources/{source_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Source */
+        post: operations["retry_source_api_sources__source_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sources/{source_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Source
+         * @description Accept what was filed: its notes become confirmed (and eligible for quizzes).
+         */
+        post: operations["approve_source_api_sources__source_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export
+         * @description Every note as a Markdown file, for the nightly sync workflow.
+         */
+        get: operations["export_api_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -329,6 +464,20 @@ export interface components {
             auth_required: boolean;
             /** Authenticated */
             authenticated: boolean;
+        };
+        /** Body_upload_source_api_sources_upload_post */
+        Body_upload_source_api_sources_upload_post: {
+            /** File */
+            file: string;
+            /** Track Hint */
+            track_hint?: string | null;
+        };
+        /** CitationOut */
+        CitationOut: {
+            /** Chunk Idx */
+            chunk_idx: number;
+            /** Quote */
+            quote: string;
         };
         /**
          * DiagramKind
@@ -359,6 +508,18 @@ export interface components {
             next_due_at?: string | null;
             /** Items */
             items: components["schemas"]["ReviewItemOut"][];
+        };
+        /** ExportFile */
+        ExportFile: {
+            /** Path */
+            path: string;
+            /** Content */
+            content: string;
+        };
+        /** ExportOut */
+        ExportOut: {
+            /** Files */
+            files: components["schemas"]["ExportFile"][];
         };
         /** GradeIn */
         GradeIn: {
@@ -653,11 +814,177 @@ export interface components {
             /** Summary */
             summary?: string | null;
         };
+        /** SourceCreate */
+        SourceCreate: {
+            /** @description Optional; detected from the link */
+            kind?: components["schemas"]["SourceKind"] | null;
+            /** Uri */
+            uri?: string | null;
+            /** Text */
+            text?: string | null;
+            /** Title */
+            title?: string | null;
+            /**
+             * Track Hint
+             * @description Track slug; skips classification
+             */
+            track_hint?: string | null;
+        };
+        /** SourceDetail */
+        SourceDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            kind: components["schemas"]["SourceKind"];
+            /** Uri */
+            uri: string;
+            /** Title */
+            title?: string | null;
+            status: components["schemas"]["SourceStatus"];
+            /** Stage */
+            stage?: string | null;
+            /** Error */
+            error?: string | null;
+            /** Track */
+            track?: string | null;
+            /** Track Name */
+            track_name?: string | null;
+            /** Topic */
+            topic?: string | null;
+            /** Suggested Track */
+            suggested_track?: string | null;
+            /** Track Confidence */
+            track_confidence?: number | null;
+            /** Headline */
+            headline?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Deduplicated
+             * @default false
+             */
+            deduplicated: boolean;
+            summary?: components["schemas"]["SourceSummaryOut"] | null;
+            /** Items */
+            items?: components["schemas"]["SourceItemOut"][];
+        };
+        /** SourceItemOut */
+        SourceItemOut: {
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /** Action */
+            action: string;
+            /** Note Id */
+            note_id?: string | null;
+            /** Title */
+            title?: string | null;
+            /** Body Md */
+            body_md?: string | null;
+            /** Before Body Md */
+            before_body_md?: string | null;
+            origin?: components["schemas"]["NoteOrigin"] | null;
+            /**
+             * Confirmed
+             * @default false
+             */
+            confirmed: boolean;
+            /**
+             * Undone
+             * @default false
+             */
+            undone: boolean;
+            /** Citations */
+            citations?: components["schemas"]["CitationOut"][];
+        };
+        /**
+         * SourceKind
+         * @enum {string}
+         */
+        SourceKind: "url" | "pdf" | "youtube" | "text";
+        /** SourceOut */
+        SourceOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            kind: components["schemas"]["SourceKind"];
+            /** Uri */
+            uri: string;
+            /** Title */
+            title?: string | null;
+            status: components["schemas"]["SourceStatus"];
+            /** Stage */
+            stage?: string | null;
+            /** Error */
+            error?: string | null;
+            /** Track */
+            track?: string | null;
+            /** Track Name */
+            track_name?: string | null;
+            /** Topic */
+            topic?: string | null;
+            /** Suggested Track */
+            suggested_track?: string | null;
+            /** Track Confidence */
+            track_confidence?: number | null;
+            /** Headline */
+            headline?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Deduplicated
+             * @default false
+             */
+            deduplicated: boolean;
+        };
+        /**
+         * SourceStatus
+         * @enum {string}
+         */
+        SourceStatus: "queued" | "fetching" | "processing" | "needs_track" | "ready" | "approved" | "failed";
+        /** SourceSummaryOut */
+        SourceSummaryOut: {
+            /** Created */
+            created: number;
+            /** Merged */
+            merged: number;
+            /** Linked */
+            linked: number;
+            /** Chunks */
+            chunks: number;
+        };
         /**
          * Speaker
          * @enum {string}
          */
         Speaker: "user" | "assistant";
+        /** TrackChoice */
+        TrackChoice: {
+            /** Track */
+            track: string;
+        };
         /** TrackOut */
         TrackOut: {
             /** Slug */
@@ -1360,6 +1687,251 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_sources_api_sources_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_source_api_sources_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_source_api_sources_upload_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_source_api_sources_upload_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_source_api_sources__source_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    choose_track_api_sources__source_id__track_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrackChoice"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_source_api_sources__source_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_source_api_sources__source_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_api_export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportOut"];
                 };
             };
         };

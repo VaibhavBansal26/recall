@@ -127,7 +127,11 @@ async def due_items(
 ) -> list[ReviewItem]:
     """Items to ask next, most overdue first. Questions come from what is due, not at random."""
     now = now or _now()
-    query = select(ReviewItem).join(Note, Note.id == ReviewItem.note_id)
+    query = (
+        select(ReviewItem)
+        .join(Note, Note.id == ReviewItem.note_id)
+        .where(Note.confirmed.is_(True))  # unapproved source/assistant notes are not quizzed
+    )
     if track_slug:
         query = query.join(Track, Track.id == Note.track_id).where(Track.slug == track_slug)
     if note_ids is not None:
@@ -146,7 +150,7 @@ async def count_due(
         select(func.count())
         .select_from(ReviewItem)
         .join(Note, Note.id == ReviewItem.note_id)
-        .where(ReviewItem.due_at <= now)
+        .where(ReviewItem.due_at <= now, Note.confirmed.is_(True))
     )
     if track_slug:
         query = query.join(Track, Track.id == Note.track_id).where(Track.slug == track_slug)
@@ -161,7 +165,7 @@ async def next_due_at(
         select(func.min(ReviewItem.due_at))
         .select_from(ReviewItem)
         .join(Note, Note.id == ReviewItem.note_id)
-        .where(ReviewItem.due_at > now)
+        .where(ReviewItem.due_at > now, Note.confirmed.is_(True))
     )
     if track_slug:
         query = query.join(Track, Track.id == Note.track_id).where(Track.slug == track_slug)

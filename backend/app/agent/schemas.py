@@ -63,3 +63,24 @@ class QuizTurn(BaseModel):
 
 class WhyMatters(BaseModel):
     line: str = Field(description="One short spoken sentence on why this note matters")
+
+
+class TrackClassification(BaseModel):
+    track: str = Field(description="Slug of the best-fitting track, exactly as listed")
+    topic: str = Field(description="The specific topic within that track, a few words")
+    confidence: float = Field(ge=0, le=1, description="How sure you are the track fits (0 to 1)")
+
+
+class SourceCitation(BaseModel):
+    chunk: int = Field(description="Number of the chunk the idea comes from, as listed")
+    quote: str = Field(description="A short VERBATIM quote (5 to 25 words) from that chunk")
+
+
+class SourceNote(BaseModel):
+    title: str = Field(description="The idea phrased as a claim or a question")
+    body_md: str = Field(description="1-5 sentences of Markdown, only what the source says")
+    citations: list[SourceCitation] = Field(default_factory=list)
+
+
+class SourceNotes(BaseModel):
+    notes: list[SourceNote] = Field(default_factory=list)

@@ -64,6 +64,7 @@ async def create_note(
     origin: NoteOrigin,
     embedding: list[float] | None,
     session_id: uuid.UUID | None = None,
+    source_id: uuid.UUID | None = None,
     record_event: bool = True,
 ) -> tuple[Note, CaptureEvent | None]:
     note = Note(
@@ -75,13 +76,18 @@ async def create_note(
         origin=origin,
         confirmed=origin == NoteOrigin.user,  # the user said it, so nothing to confirm
         embedding=embedding,
+        source_id=source_id,
     )
     db.add(note)
     await db.flush()
     event = None
     if record_event:
         event = CaptureEvent(
-            session_id=session_id, note_id=note.id, action=CaptureAction.created, note=note
+            session_id=session_id,
+            source_id=source_id,
+            note_id=note.id,
+            action=CaptureAction.created,
+            note=note,
         )
         db.add(event)
     await db.commit()
@@ -96,9 +102,11 @@ async def merge_into(
     embedding: list[float],
     similarity: float,
     session_id: uuid.UUID | None = None,
+    source_id: uuid.UUID | None = None,
 ) -> CaptureEvent:
     event = CaptureEvent(
         session_id=session_id,
+        source_id=source_id,
         note_id=note.id,
         action=CaptureAction.merged,
         similarity=similarity,

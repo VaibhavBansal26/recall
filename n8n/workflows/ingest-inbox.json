@@ -1,0 +1,323 @@
+{
+  "id": "recall-ingest-inbox",
+  "name": "Recall: ingest inbox folder",
+  "active": true,
+  "nodes": [
+    {
+      "id": "watch-inbox",
+      "name": "Watch inbox",
+      "type": "n8n-nodes-base.localFileTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "triggerOn": "folder",
+        "path": "/files/inbox",
+        "events": [
+          "add"
+        ],
+        "options": {
+          "awaitWriteFinish": true,
+          "ignoreInitial": false,
+          "usePolling": true
+        }
+      }
+    },
+    {
+      "id": "is-pdf",
+      "name": "Is PDF",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        240,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-eba5dd1e",
+              "leftValue": "={{ $json.path }}",
+              "operator": {
+                "type": "string",
+                "operation": "endsWith"
+              },
+              "rightValue": ".pdf"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "read-pdf",
+      "name": "Read PDF",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        480,
+        80
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $json.path }}",
+        "options": {
+          "dataPropertyName": "data"
+        }
+      }
+    },
+    {
+      "id": "upload-pdf",
+      "name": "Upload PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        80
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.RECALL_BACKEND_URL }}/api/sources/upload",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Recall-Secret",
+              "value": "={{ $env.RECALL_SHARED_SECRET }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "is-text-or-links",
+      "name": "Is text or links",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        320
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c-6cc70ea0",
+              "leftValue": "={{ /\\.(txt|md|url|html?)$/i.test($json.path) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "read-text-file",
+      "name": "Read text file",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $json.path }}",
+        "options": {
+          "dataPropertyName": "data"
+        }
+      }
+    },
+    {
+      "id": "text-from-file",
+      "name": "Text from file",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "operation": "text",
+        "binaryPropertyName": "data",
+        "options": {}
+      }
+    },
+    {
+      "id": "find-links",
+      "name": "Find links",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// One source per link in the file; if there are no links, a long text is ingested as text.\nconst text = String($input.first().json.data || '');\nconst urls = [...new Set(text.match(/https?:\\/\\/[^\\s<>\"')]+/g) || [])];\nif (urls.length) return urls.map((u) => ({ json: { uri: u } }));\nreturn text.trim().split(/\\s+/).length >= 30 ? [{ json: { text: text.trim() } }] : [];\n"
+      }
+    },
+    {
+      "id": "send-to-recall",
+      "name": "Send to Recall",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.RECALL_BACKEND_URL }}/api/sources",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Recall-Secret",
+              "value": "={{ $env.RECALL_SHARED_SECRET }}"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Watch inbox": {
+      "main": [
+        [
+          {
+            "node": "Is PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is PDF": {
+      "main": [
+        [
+          {
+            "node": "Read PDF",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is text or links",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read PDF": {
+      "main": [
+        [
+          {
+            "node": "Upload PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is text or links": {
+      "main": [
+        [
+          {
+            "node": "Read text file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read text file": {
+      "main": [
+        [
+          {
+            "node": "Text from file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text from file": {
+      "main": [
+        [
+          {
+            "node": "Find links",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find links": {
+      "main": [
+        [
+          {
+            "node": "Send to Recall",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

@@ -18,6 +18,10 @@ dependencies = [
     "websockets>=16.1.1",
     "itsdangerous>=2.2.0",
     "fsrs>=6.3.2",
+    "beautifulsoup4>=4.15.0",
+    "pypdf>=6.21.2",
+    "youtube-transcript-api>=1.2.4",
+    "python-multipart>=0.0.32",
 ]
 
 [dependency-groups]
@@ -38,6 +42,9 @@ extend-exclude = ["app/db/migrations/versions"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]  # long fixture strings read better unwrapped
 
 [tool.mypy]
 python_version = "3.12"

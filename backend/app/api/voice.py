@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket
 from pydantic import BaseModel, ValidationError
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 from app.agent.confusion import ConfusionTracker
 from app.agent.deps import AgentDeps
@@ -22,9 +22,10 @@ from app.agent.router import Mode, Route, route_turn
 from app.agent.state import AgentState, DiagramItem
 from app.auth import COOKIE_NAME
 from app.config import get_settings
-from app.db.models import LearningSession, Speaker, Utterance
+from app.db.models import CaptureEvent, LearningSession, Source, SourceStatus, Speaker, Utterance
 from app.services import confusion as confusion_svc
 from app.services import diagrams as diagram_svc
+from app.services import ingest as ingest_svc
 from app.services import notes as notes_svc
 from app.services import retrieval
 from app.services import sessions as svc
@@ -105,6 +106,7 @@ class _Connection:
         self.mode: Mode = Mode.capture
         self.quiz: QuizSession | None = None
         self.readback: read_back_node.ReadBackSession | None = None
+        self.ingest_source_id: uuid.UUID | None = None
         self.speed: float = 1.0
         self.active_note_id: uuid.UUID | None = None  # last note we explained/read/quizzed
         self.last_topic: str | None = None
@@ -234,6 +236,8 @@ class _Connection:
             await self._handle_quiz(route, latency)
         elif route.mode == Mode.read_back:
             await self._handle_read_back(route, latency)
+        elif route.mode == Mode.ingest_review:
+            await self._handle_ingest_review(route, latency)
         elif route.mode == Mode.explain:
             await self._handle_explain(route.topic or state.user_text, latency, simple=False)
         elif route.mode == Mode.chitchat:
@@ -487,6 +491,80 @@ class _Connection:
             else:
                 await self._set_mode(Mode.capture)
         self._start_reply(_once(spoken), latency)
+
+    # ---- ingest_review: what was filed from new material, and do you want to keep it ----
+
+    async def _handle_ingest_review(self, route: Route, latency: TurnLatency) -> None:
+        command = route.command or "start"
+        async with self.deps.sessionmaker() as db:
+            if command == "start" or self.ingest_source_id is None:
+                source = (
+                    await db.execute(
+                        select(Source)
+                        .where(Source.status == SourceStatus.ready)
+                        .order_by(Source.updated_at.desc())
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
+                if source is None:
+                    await self._set_mode(Mode.capture)
+                    self._start_reply(_once("Nothing new is waiting for your review."), latency)
+                    return
+                self.ingest_source_id = source.id
+                spoken = await self._ingest_summary(db, source)
+                await self._set_mode(Mode.ingest_review)
+                self.ingest_source_id = source.id  # _set_mode only clears state it owns
+                self._start_reply(_once(spoken), latency)
+                return
+
+            source = (
+                await db.execute(select(Source).where(Source.id == self.ingest_source_id))
+            ).scalar_one_or_none()
+            if source is None or source.status != SourceStatus.ready:
+                spoken = "That one has already been handled."
+                done = True
+            elif command == "approve":
+                count = await ingest_svc.approve(db, source)
+                spoken = f"Done. I confirmed {count} note{'s' if count != 1 else ''}."
+                done = True
+            elif command == "undo":
+                events = (
+                    await db.execute(
+                        select(CaptureEvent.id).where(
+                            CaptureEvent.source_id == source.id, CaptureEvent.undone.is_(False)
+                        )
+                    )
+                ).scalars()
+                for event_id in list(events):
+                    await notes_svc.undo_capture(db, event_id)
+                await ingest_svc.approve(db, source)  # nothing left to confirm; closes it
+                spoken = "Okay, I removed everything that source added."
+                done = True
+            elif command == "end":
+                spoken = "Okay, they will wait for you on the sources page."
+                done = True
+            else:  # repeat
+                spoken = await self._ingest_summary(db, source)
+                done = False
+        if done:
+            self.ingest_source_id = None
+            await self._set_mode(Mode.capture)
+        self._start_reply(_once(spoken), latency)
+
+    async def _ingest_summary(self, db: Any, source: Source) -> str:
+        summary = await ingest_svc.summarize(db, source)
+        headline = summary.headline(source.track.name if source.track else None)
+        titles = (
+            await db.execute(
+                select(CaptureEvent)
+                .where(CaptureEvent.source_id == source.id, CaptureEvent.undone.is_(False))
+                .limit(3)
+            )
+        ).scalars()
+        names = [e.note.title for e in titles if e.note is not None]
+        about = f" from {source.title}" if source.title else ""
+        sample = f" For example: {'; '.join(names)}." if names else ""
+        return f"{headline[:-1]}{about}.{sample} Shall I keep them?"
 
     # ---- diagrams for notes ----
 

@@ -12,6 +12,7 @@ Voice-first learning companion (single user, local-first). The full spec and pha
 | 2 Diagrams and memory map | done (verified with fakes) |
 | 2.5 Hosted backend + installable PWA | built; tested locally, not yet on a real VM or iOS device |
 | 3 Recall engine | done (verified with fakes only) |
+| 4 Ingestion and n8n | done (fake LLM; real extraction quality unmeasured) |
 
 ## Use it on laptop, iPhone and iPad
 
@@ -100,3 +101,31 @@ The Debug panel shows speech end to first audio for each turn; the target is und
 4. Type `read me my notes on reranking`; use next, repeat, slower, faster, stop.
 5. On **Memory map**, notes you have reviewed take a red to green strength colour, fragile ones get a red
    border, and **Quiz me on this** practises that one note.
+
+## Phase 4 demo
+
+1. Open **Sources**, paste a link (or text), press **Add source**. It moves through fetching, chunking and
+   extracting, then shows `Filed N notes under AI Engineering, linked M.` Each note is dashed
+   (*From source, unconfirmed*) with its citation: the verbatim quote and chunk.
+2. **Undo** any item, then **Approve all**. Approved notes count and are quizzed.
+3. Add the same link again (even with `?utm_source=...`): it is recognised, not added twice.
+4. By voice: say `what did you file?`, then `yes` to approve or `no` to remove it all.
+
+### n8n (ingest from anywhere)
+
+```bash
+make dev                # starts n8n at http://localhost:5678 too
+make n8n-import         # loads the three workflows and activates them
+```
+
+| Workflow | What it does |
+|---|---|
+| `ingest-url` | `POST /webhook/ingest-url` with `{"url": "...", "track": "ai-eng"}` and header `X-Recall-Secret` |
+| `ingest-inbox` | watches `n8n/inbox/`: drop a PDF, or a `.txt`/`.md` file with links |
+| `sync-export` | nightly, writes every note as Markdown into `n8n/exports/` |
+
+```bash
+curl -X POST http://localhost:5678/webhook/ingest-url \
+  -H "Content-Type: application/json" -H "X-Recall-Secret: $RECALL_SHARED_SECRET" \
+  -d '{"url": "https://example.com/some-article"}'
+```

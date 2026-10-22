@@ -48,6 +48,23 @@ class LinkKind(enum.StrEnum):
     appears_in = "appears_in"  # from_note appears in to_note
 
 
+class SourceKind(enum.StrEnum):
+    url = "url"
+    pdf = "pdf"
+    youtube = "youtube"
+    text = "text"
+
+
+class SourceStatus(enum.StrEnum):
+    queued = "queued"
+    fetching = "fetching"
+    processing = "processing"
+    needs_track = "needs_track"  # classification was not confident; waiting for the user
+    ready = "ready"  # notes are filed and waiting for approval
+    approved = "approved"
+    failed = "failed"
+
+
 class PromptKind(enum.StrEnum):
     cloze = "cloze"
     question = "question"
@@ -146,8 +163,9 @@ class Note(Base):
     confirmed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     # Set when the learner struggled with this note (confusion, or repeated reveals in a quiz).
     fragile: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-    # Plain column for now; FK to `sources` is added with that table in Phase 4.
-    source_id: Mapped[uuid.UUID | None] = mapped_column()
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("sources.id", ondelete="SET NULL")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, server_default=sql_text("now()")
     )
@@ -173,6 +191,10 @@ class CaptureEvent(Base):
     note_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("notes.id", ondelete="CASCADE"))
     action: Mapped[CaptureAction] = mapped_column(Enum(CaptureAction, name="capture_action"))
     similarity: Mapped[float | None] = mapped_column(Float)
+    # Set when an ingested source caused this change (session_id is then null).
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("sources.id", ondelete="CASCADE"), index=True
+    )
     # Note state before a merge: {"title", "body_md", "embedding"}. Null for creations.
     before: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     undone: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
@@ -283,3 +305,87 @@ class ConfusionEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, server_default=sql_text("now()")
     )
+
+
+class Source(Base):
+    """Material fed in from outside (link, PDF, YouTube, pasted text) that is filed into notes."""
+
+    __tablename__ = "sources"
+    __table_args__ = (UniqueConstraint("user_id", "uri"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()")
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(default=LOCAL_USER_ID, index=True)
+    track_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tracks.id"))
+    kind: Mapped[SourceKind] = mapped_column(Enum(SourceKind, name="source_kind"))
+    # Normalised URL, or "sha256:<hash>" for uploads and pasted text. Unique per user: ingesting
+    # the same thing twice does not duplicate it.
+    uri: Mapped[str] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[SourceStatus] = mapped_column(
+        Enum(SourceStatus, name="source_status"),
+        default=SourceStatus.queued,
+        server_default="queued",
+    )
+    stage: Mapped[str | None] = mapped_column(String(64))
+    error: Mapped[str | None] = mapped_column(Text)
+    topic: Mapped[str | None] = mapped_column(Text)
+    track_hint: Mapped[str | None] = mapped_column(String(64))
+    suggested_track: Mapped[str | None] = mapped_column(String(64))
+    track_confidence: Mapped[float | None] = mapped_column(Float)
+    raw_text: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, server_default=sql_text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now, server_default=sql_text("now()")
+    )
+
+    track: Mapped[Track | None] = relationship(lazy="joined")
+
+
+class SourceChunk(Base):
+    __tablename__ = "source_chunks"
+    __table_args__ = (
+        UniqueConstraint("source_id", "idx"),
+        Index(
+            "ix_source_chunks_embedding",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()")
+    )
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sources.id", ondelete="CASCADE"), index=True
+    )
+    idx: Mapped[int] = mapped_column(Integer)
+    text: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM))
+
+
+class NoteCitation(Base):
+    """Where in a source a note's content came from: the chunk and a verbatim quote."""
+
+    __tablename__ = "note_citations"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()")
+    )
+    note_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("notes.id", ondelete="CASCADE"), index=True
+    )
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sources.id", ondelete="CASCADE"), index=True
+    )
+    chunk_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("source_chunks.id", ondelete="CASCADE"))
+    quote: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, server_default=sql_text("now()")
+    )
+
+    chunk: Mapped[SourceChunk] = relationship(lazy="joined")

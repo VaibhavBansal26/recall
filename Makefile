@@ -1,4 +1,4 @@
-.PHONY: prod-up prod-down prod-logs backup env dev down migrate revision test test-backend test-frontend e2e lint gen-api install
+.PHONY: n8n-build n8n-import prod-up prod-down prod-logs backup env dev down migrate revision test test-backend test-frontend e2e lint gen-api install
 
 env:
 	@test -f .env || cp .env.example .env
@@ -53,3 +53,10 @@ prod-logs:
 
 backup:
 	./scripts/backup.sh
+
+# --- n8n ---
+n8n-build:
+	python3 n8n/build_workflows.py
+
+n8n-import:
+	./n8n/import.sh

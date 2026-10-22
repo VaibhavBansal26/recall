@@ -1,0 +1,176 @@
+{
+  "id": "recall-sync-export",
+  "name": "Recall: nightly Markdown export",
+  "active": true,
+  "nodes": [
+    {
+      "id": "every-night",
+      "name": "Every night",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        120
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 1,
+              "triggerAtHour": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "run-now",
+      "name": "Run now",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "get-notes",
+      "name": "Get notes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        200
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.RECALL_BACKEND_URL }}/api/export",
+        "options": {
+          "timeout": 60000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Recall-Secret",
+              "value": "={{ $env.RECALL_SHARED_SECRET }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "one-item-per-note",
+      "name": "One item per note",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        480,
+        200
+      ],
+      "parameters": {
+        "fieldToSplitOut": "files",
+        "options": {}
+      }
+    },
+    {
+      "id": "to-file",
+      "name": "To file",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        200
+      ],
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "content",
+        "binaryPropertyName": "data",
+        "options": {
+          "fileName": "={{ $json.path.replace('/', '__') }}"
+        }
+      }
+    },
+    {
+      "id": "write-markdown",
+      "name": "Write markdown",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        960,
+        200
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "=/files/exports/{{ $binary.data.fileName }}",
+        "dataPropertyName": "data",
+        "options": {
+          "append": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every night": {
+      "main": [
+        [
+          {
+            "node": "Get notes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run now": {
+      "main": [
+        [
+          {
+            "node": "Get notes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get notes": {
+      "main": [
+        [
+          {
+            "node": "One item per note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per note": {
+      "main": [
+        [
+          {
+            "node": "To file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "To file": {
+      "main": [
+        [
+          {
+            "node": "Write markdown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

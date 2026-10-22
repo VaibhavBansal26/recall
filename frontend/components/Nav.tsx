@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { getDue } from "@/lib/api";
+import { getDue, listSources } from "@/lib/api";
 import { useRefreshOnFocus } from "@/lib/useRefreshOnFocus";
 import { useAuth } from "./AuthGate";
 
 const LINKS = [
   { href: "/session", label: "Session" },
   { href: "/review", label: "Review" },
+  { href: "/sources", label: "Sources" },
   { href: "/map", label: "Memory map" },
 ];
 
@@ -17,10 +18,14 @@ export function Nav() {
   const path = usePathname();
   const { authRequired, logout } = useAuth();
   const [due, setDue] = useState<number | null>(null);
+  const [awaiting, setAwaiting] = useState(0);
   const refresh = useCallback(
     () =>
-      getDue()
-        .then((d) => setDue(d.total_due))
+      Promise.all([
+        getDue().then((d) => setDue(d.total_due)),
+        listSources().then((s) => setAwaiting(s.filter((x) => x.status === "ready").length)),
+      ])
+        .then(() => undefined)
         .catch(() => undefined),
     [],
   );
@@ -46,6 +51,15 @@ export function Nav() {
                   className="ml-1 rounded-full bg-indigo-600 px-1.5 py-0.5 text-xs font-normal text-white"
                 >
                   {due}
+                </span>
+              ) : null}
+              {l.href === "/sources" && awaiting > 0 ? (
+                <span
+                  data-testid="sources-badge"
+                  className="ml-1 rounded-full bg-amber-500 px-1.5 py-0.5 text-xs font-normal text-white"
+                  title="Waiting for your approval"
+                >
+                  {awaiting}
                 </span>
               ) : null}
             </Link>

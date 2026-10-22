@@ -17,3 +17,7 @@ frontend/tsconfig.tsbuildinfo
 frontend/next-env.d.ts
 *.tsbuildinfo
 .DS_Store
+n8n/inbox/*
+!n8n/inbox/.gitkeep
+n8n/exports/*
+!n8n/exports/.gitkeep

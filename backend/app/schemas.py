@@ -4,7 +4,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.db.models import DiagramKind, LinkKind, NoteOrigin, PromptKind, Speaker
+from app.db.models import (
+    DiagramKind,
+    LinkKind,
+    NoteOrigin,
+    PromptKind,
+    SourceKind,
+    SourceStatus,
+    Speaker,
+)
 
 
 class HealthOut(BaseModel):
@@ -164,3 +172,73 @@ class GradeOut(BaseModel):
     became_fragile: bool
     cleared_fragile: bool
     next_due_at: datetime
+
+
+class SourceCreate(BaseModel):
+    kind: SourceKind | None = Field(default=None, description="Optional; detected from the link")
+    uri: str | None = Field(default=None, max_length=2048)
+    text: str | None = Field(default=None, max_length=500_000)
+    title: str | None = Field(default=None, max_length=300)
+    track_hint: str | None = Field(default=None, description="Track slug; skips classification")
+
+
+class SourceOut(BaseModel):
+    id: uuid.UUID
+    kind: SourceKind
+    uri: str
+    title: str | None = None
+    status: SourceStatus
+    stage: str | None = None
+    error: str | None = None
+    track: str | None = None
+    track_name: str | None = None
+    topic: str | None = None
+    suggested_track: str | None = None
+    track_confidence: float | None = None
+    headline: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    deduplicated: bool = False
+
+
+class CitationOut(BaseModel):
+    chunk_idx: int
+    quote: str
+
+
+class SourceItemOut(BaseModel):
+    event_id: uuid.UUID
+    action: str
+    note_id: uuid.UUID | None = None
+    title: str | None = None
+    body_md: str | None = None
+    before_body_md: str | None = None
+    origin: NoteOrigin | None = None
+    confirmed: bool = False
+    undone: bool = False
+    citations: list[CitationOut] = Field(default_factory=list)
+
+
+class SourceSummaryOut(BaseModel):
+    created: int
+    merged: int
+    linked: int
+    chunks: int
+
+
+class SourceDetail(SourceOut):
+    summary: SourceSummaryOut | None = None
+    items: list[SourceItemOut] = Field(default_factory=list)
+
+
+class TrackChoice(BaseModel):
+    track: str
+
+
+class ExportFile(BaseModel):
+    path: str
+    content: str
+
+
+class ExportOut(BaseModel):
+    files: list[ExportFile]

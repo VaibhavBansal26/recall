@@ -92,7 +92,7 @@ function NoteItem({
         {unconfirmed && (
           <>
             <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
-              From assistant, unconfirmed
+              {note.origin === "source" ? "From source, unconfirmed" : "From assistant, unconfirmed"}
             </span>
             {onConfirm && (
               <button

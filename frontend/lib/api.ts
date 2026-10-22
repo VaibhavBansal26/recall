@@ -1,6 +1,7 @@
 import type { components } from "./api-types";
 import type { DiagramItem, NoteCard } from "./events";
 import { apiFetch } from "./http";
+import { looksLikeLink } from "./sources";
 
 export type SessionDetail = components["schemas"]["SessionDetail"];
 export type NoteOut = components["schemas"]["NoteOut"];
@@ -110,3 +111,61 @@ export async function setNoteConfirmed(noteId: string, confirmed: boolean): Prom
   });
   return json(res, "PATCH note");
 }
+
+export type SourceOut = components["schemas"]["SourceOut"];
+export type SourceDetail = components["schemas"]["SourceDetail"];
+export type SourceItem = components["schemas"]["SourceItemOut"];
+
+export const ACTIVE_STATUSES = ["queued", "fetching", "processing"];
+
+export async function listSources(): Promise<SourceOut[]> {
+  return json(await apiFetch("/api/sources"), "GET sources");
+}
+
+export async function getSourceDetail(id: string): Promise<SourceDetail> {
+  return json(await apiFetch(`/api/sources/${id}`), "GET source");
+}
+
+/** Add a link or pasted text. Resolves with the source, or an error message to show. */
+export async function addSource(
+  input: string,
+  trackHint: string | null,
+): Promise<{ ok: true; source: SourceOut } | { ok: false; error: string }> {
+  const trimmed = input.trim();
+  const body = looksLikeLink(trimmed) ? { uri: trimmed } : { text: trimmed };
+  const res = await apiFetch("/api/sources", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...body, track_hint: trackHint }),
+  });
+  if (res.ok) return { ok: true, source: (await res.json()) as SourceOut };
+  const detail = (await res.json().catch(() => ({}))) as { detail?: string };
+  return { ok: false, error: typeof detail.detail === "string" ? detail.detail : "Could not add that." };
+}
+
+export async function uploadPdf(
+  file: File,
+  trackHint: string | null,
+): Promise<{ ok: true; source: SourceOut } | { ok: false; error: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  if (trackHint) form.append("track_hint", trackHint);
+  const res = await apiFetch("/api/sources/upload", { method: "POST", body: form });
+  if (res.ok) return { ok: true, source: (await res.json()) as SourceOut };
+  const detail = (await res.json().catch(() => ({}))) as { detail?: string };
+  return { ok: false, error: typeof detail.detail === "string" ? detail.detail : "Upload failed." };
+}
+
+async function postJson(path: string, body?: unknown): Promise<SourceOut> {
+  const res = await apiFetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return json(res, `POST ${path}`);
+}
+
+export const approveSource = (id: string) => postJson(`/api/sources/${id}/approve`);
+export const retrySource = (id: string) => postJson(`/api/sources/${id}/retry`);
+export const chooseSourceTrack = (id: string, track: string) =>
+  postJson(`/api/sources/${id}/track`, { track });

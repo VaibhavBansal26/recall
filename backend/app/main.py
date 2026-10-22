@@ -8,12 +8,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.agent.deps import AgentDeps
 from app.agent.graph import build_graph
 from app.api import auth as auth_api
-from app.api import graph, health, links, notes, reviews, sessions, voice
-from app.auth import AuthService, LoginLimiter, require_auth
+from app.api import export, graph, health, links, notes, reviews, sessions, sources, voice
+from app.auth import AuthService, LoginLimiter, require_auth, require_auth_or_secret
 from app.config import get_settings
 from app.db.session import make_engine, make_sessionmaker
 from app.embeddings import get_embedder
+from app.ingest.fetch import SafeFetcher
 from app.llm import UsageTracker, get_llm
+from app.services.ingest import IngestContext, IngestRunner
 from app.tracks import sync_tracks
 from app.voice import get_voice_provider
 
@@ -39,6 +41,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         embedder=get_embedder(settings),
     )
     app.state.graph = build_graph(app.state.deps)
+    app.state.recall_secret = settings.recall_shared_secret
+    app.state.ingest = IngestRunner(IngestContext(app.state.deps, SafeFetcher()))
+    await app.state.ingest.resume_unfinished()
 
     # A voice provider with missing keys must not stop the API: report it over the socket.
     app.state.voice, app.state.voice_error = None, None
@@ -49,6 +54,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.voice_error = str(exc)
 
     yield
+    await app.state.ingest.aclose()
     if app.state.voice is not None:
         await app.state.voice.aclose()
     await engine.dispose()
@@ -56,7 +62,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="Recall", version="0.5.0", lifespan=lifespan)
+    app = FastAPI(title="Recall", version="0.6.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -72,6 +78,10 @@ def create_app() -> FastAPI:
     app.include_router(links.router, dependencies=guarded)
     app.include_router(graph.router, dependencies=guarded)
     app.include_router(reviews.router, dependencies=guarded)
+    # n8n calls these with the shared secret instead of a browser session.
+    machine = [Depends(require_auth_or_secret)]
+    app.include_router(sources.router, dependencies=machine)
+    app.include_router(export.router, dependencies=machine)
     app.include_router(voice.router)  # authenticates its own WebSocket handshake
     return app
 

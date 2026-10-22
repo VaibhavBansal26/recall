@@ -80,3 +80,20 @@ async def require_auth(request: Request) -> None:
     auth: AuthService = request.app.state.auth
     if not auth.verify(request.cookies.get(COOKIE_NAME)):
         raise HTTPException(status_code=401, detail="Not authenticated")
+
+
+async def require_auth_or_secret(request: Request) -> None:
+    """Browser session cookie, or the shared secret n8n sends in `X-Recall-Secret`."""
+    auth: AuthService = request.app.state.auth
+    supplied = request.headers.get("x-recall-secret")
+    expected: str = request.app.state.recall_secret
+    if (
+        expected
+        and supplied
+        and hmac.compare_digest(
+            hashlib.sha256(supplied.encode()).digest(), hashlib.sha256(expected.encode()).digest()
+        )
+    ):
+        return
+    if not auth.verify(request.cookies.get(COOKIE_NAME)):
+        raise HTTPException(status_code=401, detail="Not authenticated")

@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     dedup_similarity: float = 0.88
     max_notes_per_turn: int = 5
 
+    # --- ingestion ---
+    max_notes_per_source: int = 12
+    max_chunks_per_source: int = 60
+    track_confidence_min: float = 0.6  # below this the user is asked which track
+    ingest_concurrency: int = 2  # sources processed at once
+    recall_shared_secret: str = ""  # lets n8n call the ingest endpoints; empty = disabled
+
     # --- recall ---
     quiz_batch: int = 5  # questions per quiz session
     max_review_items_per_note: int = 2
@@ -71,6 +78,10 @@ class Settings(BaseSettings):
                 raise ValueError("production needs AUTH_PASSPHRASE of at least 12 characters")
             if not self.cookie_secure:
                 raise ValueError("production needs COOKIE_SECURE=true (serve over HTTPS)")
+        if self.recall_shared_secret and (
+            len(self.recall_shared_secret) < 16 or self.recall_shared_secret == "change-me"
+        ):
+            raise ValueError("RECALL_SHARED_SECRET must be 16+ characters (not the placeholder)")
         if self.auth_passphrase and len(self.session_secret) < 32:
             raise ValueError(
                 "AUTH_PASSPHRASE is set, so SESSION_SECRET (32+ characters) is required"

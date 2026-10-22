@@ -5,10 +5,10 @@ from collections.abc import AsyncIterator
 
 from app.agent.deps import AgentDeps
 from app.agent.prompts import load_prompt
-from app.agent.schemas import ExtractedNotes, MergeResult
+from app.agent.schemas import ExtractedNotes
 from app.agent.state import AgentState, CaptureItem
-from app.db.models import CaptureAction, CaptureEvent, Note, NoteOrigin
-from app.services import notes as notes_svc
+from app.db.models import CaptureEvent, Note, NoteOrigin
+from app.services.capture import file_candidate
 from app.services.sessions import get_track
 
 log = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ def ack_stream(deps: AgentDeps, state: AgentState) -> AsyncIterator[str]:
     )
 
 
-def _item(event: CaptureEvent, note: Note) -> CaptureItem:
+def capture_item(event: CaptureEvent, note: Note) -> CaptureItem:
     before = event.before or {}
     return CaptureItem(
         event_id=event.id,
@@ -43,7 +43,6 @@ def _item(event: CaptureEvent, note: Note) -> CaptureItem:
 
 async def capture_node(deps: AgentDeps, state: AgentState) -> AgentState:
     extract_prompt = load_prompt("capture_extract")
-    merge_prompt = load_prompt("capture_merge")
 
     async with deps.sessionmaker() as db:
         track = await get_track(db, state.track)
@@ -69,39 +68,17 @@ async def capture_node(deps: AgentDeps, state: AgentState) -> AgentState:
 
         items: list[CaptureItem] = []
         for cand, embedding in zip(candidates, embeddings, strict=True):
-            dup = await notes_svc.find_duplicate(
-                db, track.id, cand.title, embedding, deps.settings.dedup_similarity
+            event, note = await file_candidate(
+                deps,
+                db,
+                track=track,
+                title=cand.title,
+                body_md=cand.body_md,
+                embedding=embedding,
+                origin=NoteOrigin.user,
+                session_id=state.session_id,
             )
-            if dup is None:
-                note, event = await notes_svc.create_note(
-                    db,
-                    track=track,
-                    title=cand.title,
-                    body_md=cand.body_md,
-                    origin=NoteOrigin.user,
-                    embedding=embedding,
-                    session_id=state.session_id,
-                )
-                assert event is not None and event.action == CaptureAction.created
-            else:
-                existing, similarity = dup
-                merged = await deps.llm.complete_structured(
-                    "deep",
-                    system=merge_prompt.text,
-                    user=f"EXISTING:\n{existing.body_md}\nNEW:\n{cand.body_md}",
-                    schema=MergeResult,
-                    session_id=state.session_id,
-                )
-                event = await notes_svc.merge_into(
-                    db,
-                    note=existing,
-                    body_md=merged.body_md,
-                    embedding=embedding,
-                    similarity=similarity,
-                    session_id=state.session_id,
-                )
-                note = existing
-            items.append(_item(event, note))
+            items.append(capture_item(event, note))
 
     log.info("capture: %d note(s) from %r", len(items), state.user_text[:60])
     return state.model_copy(update={"captured": items})

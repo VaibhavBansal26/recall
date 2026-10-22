@@ -73,8 +73,13 @@ Also enable your provider's snapshot or backup feature if it has one.
 - **Change the passphrase:** edit `AUTH_PASSPHRASE`, `make prod-up`. Change `SESSION_SECRET` too
   to sign every device out at once.
 - **Brute force:** 5 wrong passphrases from one address locks it for 10 minutes.
-- **n8n (Phase 4):** `docker compose -f docker-compose.prod.yml --profile n8n up -d`. It is not
-  published; reach its UI through an SSH tunnel: `ssh -L 5678:localhost:5678 YOU@vm`.
+- **n8n (ingest from anywhere):** set `RECALL_SHARED_SECRET` (`openssl rand -hex 24`), then
+  `docker compose -f docker-compose.prod.yml --profile n8n up -d` and `COMPOSE_FILE=docker-compose.prod.yml make n8n-import`.
+  Only `https://YOUR-DOMAIN/webhook/*` is reachable from outside (through Caddy); each workflow checks the
+  shared secret itself, so send `X-Recall-Secret` from your browser extension, share-sheet shortcut or
+  script. The n8n editor is not published: use an SSH tunnel to reach it
+  (`ssh -L 5678:$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' recall-prod-n8n-1):5678 YOU@vm`).
+  Files for the inbox workflow go in `n8n/inbox/` on the VM.
 - **Test the production stack on your own machine** without a domain: set
   `SITE_ADDRESS=http://localhost`, `PUBLIC_ORIGIN=http://localhost:8080`, `HTTP_PORT=8080`,
   `HTTPS_PORT=8443` in a separate env file and run

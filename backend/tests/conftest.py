@@ -55,4 +55,4 @@ def client() -> Iterator[TestClient]:
 def clean_notes() -> None:
     url = make_url(TEST_DB_URL).set(drivername="postgresql")
     with psycopg.connect(url.render_as_string(hide_password=False), autocommit=True) as conn:
-        conn.execute("TRUNCATE capture_events, notes CASCADE")
+        conn.execute("TRUNCATE capture_events, notes, sources CASCADE")

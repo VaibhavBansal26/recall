@@ -16,6 +16,10 @@ from app.agent.schemas import (
     QuizTurn,
     ReviewDraft,
     ReviewDrafts,
+    SourceCitation,
+    SourceNote,
+    SourceNotes,
+    TrackClassification,
     WhyMatters,
 )
 from app.llm.client import LLMClient, ModelKind, T, UsageTracker
@@ -106,6 +110,30 @@ class FakeLLM(LLMClient):
                     spoken_hint=hint,
                 ).model_dump()
             )
+        if schema is TrackClassification:
+            slugs = re.findall(r"^- ([a-z0-9-]+):", user, re.M)
+            return schema.model_validate(
+                TrackClassification(
+                    track=slugs[0] if slugs else "ai-eng",
+                    topic=_field(user, "SOURCE TITLE")[:60] or "general",
+                    confidence=0.9,
+                ).model_dump()
+            )
+        if schema is SourceNotes:
+            found = []
+            for m in re.finditer(r"^\[(\d+)\]\n(.*?)(?=^\[\d+\]\n|\Z)", user, re.S | re.M):
+                number, body = int(m.group(1)), m.group(2).strip()
+                sentence = next((s for s in _SENTENCE.split(body) if len(s.split()) >= 6), None)
+                if sentence:
+                    quote = " ".join(sentence.split()[:8])
+                    found.append(
+                        SourceNote(
+                            title=sentence.strip().rstrip(".!?")[:80],
+                            body_md=sentence.strip(),
+                            citations=[SourceCitation(chunk=number, quote=quote)],
+                        )
+                    )
+            return schema.model_validate(SourceNotes(notes=found).model_dump())
         if schema is WhyMatters:
             return schema.model_validate(
                 WhyMatters(
