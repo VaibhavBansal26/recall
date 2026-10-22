@@ -2,6 +2,35 @@
 
 Newest first. Anything that differs from `CLAUDE.md` goes here with the reason.
 
+## Phase 2.5: hosted backend and installable PWA
+
+The user asked for one app on laptop, iPhone and iPad, synced. This overrides spec rule 7 (bind to
+localhost, no auth) and the "local-first" framing, by decision of the user.
+
+- **One always-on backend on a cloud VM; every device is a client.** Sync is therefore trivial
+  (one source of truth) and there are no merge conflicts. Chosen over a native iOS app with an
+  offline store and sync, which is a much larger build. Trade-off: no offline use. The service
+  worker only shows an offline page.
+- **Auth: one passphrase exchanged for a signed session cookie (itsdangerous), 30 days.** HttpOnly,
+  SameSite=Lax, Secure in production. Login is rate limited (5 failures per 10 minutes per address).
+  `user_id` columns are kept, so multi-user stays possible. Auth is off when `AUTH_PASSPHRASE` is
+  empty, which keeps local development friction-free. In `ENVIRONMENT=production` the backend refuses
+  to start without a 12+ character passphrase, `SESSION_SECRET` and `COOKIE_SECURE=true`.
+- **The WebSocket authenticates its own handshake** (cookie plus `Origin` check), since cookies
+  travel on cross-site WebSocket requests.
+- **Single public origin behind Caddy.** `/api`, `/ws`, `/healthz` go to the backend, the rest to
+  Next.js. That removes CORS in production, lets the cookie and WebSocket work as same-origin, and
+  gives automatic HTTPS (required for the microphone on iOS). The frontend is built with an empty
+  `NEXT_PUBLIC_API_URL` meaning "same origin"; the dev stack still talks to `:8000` with CORS and
+  credentials.
+- **"Sync" between open devices is refresh-on-focus plus a 30 second poll**, not a live push. A note
+  captured on one device shows on another when it is next focused. Live push is in `IDEAS.md`.
+- **Postgres, backend and frontend are not published in production**; only Caddy's 80/443 are.
+  `scripts/backup.sh` and `restore.sh` use `pg_dump`.
+- **Not verified:** the service worker registering and Add to Home Screen on real iOS Safari, iOS
+  microphone behaviour, and a real domain with Let's Encrypt. The production stack was tested
+  locally over plain http on localhost with fakes.
+
 ## Phase 2
 
 - **Mermaid is validated by a strict Python parser (`services/mermaid.py`), not Mermaid's own.**
@@ -24,8 +53,7 @@ Newest first. Anything that differs from `CLAUDE.md` goes here with the reason.
 - **Docker gotcha:** regenerate `frontend/package-lock.json` with the container's npm
   (`docker run --rm -v "$PWD/frontend":/app -w /app node:20-slim npm install --package-lock-only`)
   after adding dependencies, or `npm ci` in the image fails on optional wasm packages.
-- **PENDING, needs your decision: multi-device use (laptop + iPhone + iPad, synced).** This
-  conflicts with spec rules "local-first", "bind to localhost" and "no auth in v1". Not built yet.
+- **Multi-device use is now a requirement (laptop + iPhone + iPad, synced).** See Phase 2.5.
 
 ## Phase 1
 

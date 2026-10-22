@@ -2,11 +2,13 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
+import { useAuth } from "@/components/AuthGate";
 import { login } from "@/lib/http";
 
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
+  const { recheck } = useAuth();
   const [passphrase, setPassphrase] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -18,6 +20,8 @@ function LoginForm() {
     const result = await login(passphrase);
     setBusy(false);
     if (result.ok) {
+      // Update the gate first, or it would still think we are signed out and bounce us back.
+      await recheck();
       const next = params.get("next");
       // Only follow same-site paths so a crafted link cannot redirect elsewhere.
       router.replace(next && next.startsWith("/") && !next.startsWith("//") ? next : "/session");

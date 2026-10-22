@@ -10,9 +10,14 @@ Voice-first learning companion (single user, local-first). The full spec and pha
 | 0 Skeleton | done |
 | 1 Capture to notes | done (fakes verified; real voice/LLM keys untested) |
 | 2 Diagrams and memory map | done (verified with fakes) |
+| 2.5 Hosted backend + installable PWA | built; tested locally, not yet on a real VM or iOS device |
 | 3 Recall engine | not started |
 
-## Run
+## Use it on laptop, iPhone and iPad
+
+Run one always-on copy on a cloud VM and open it from every device: see [DEPLOY.md](DEPLOY.md).
+
+## Run locally
 
 ```bash
 make dev        # copies .env.example to .env if missing, then docker compose up --build

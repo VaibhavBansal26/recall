@@ -7,7 +7,7 @@ user says go. Log any deviation in `DECISIONS.md`; park out-of-spec ideas in `ID
 
 ## Current state
 
-Phases 0, 1 and 2 are built (verified with fakes only). Next: Phase 3 (recall engine). Open question: multi-device sync, see `DECISIONS.md` (Phase 2, PENDING).
+Phases 0, 1, 2 and 2.5 (hosted backend with passphrase login, Caddy HTTPS, installable PWA; see `DEPLOY.md`) are built, verified with fakes only. Spec rule 7 (localhost, no auth) is superseded by the user for production. Next: Phase 3 (recall engine).
 
 ## Commands
 

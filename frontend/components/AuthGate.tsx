@@ -7,9 +7,15 @@ import { AUTH_EVENT, getAuthStatus, logout as apiLogout } from "@/lib/http";
 interface AuthCtx {
   authRequired: boolean;
   logout: () => Promise<void>;
+  /** Re-read the session state (the login page calls this before navigating on). */
+  recheck: () => Promise<void>;
 }
 
-const Ctx = createContext<AuthCtx>({ authRequired: false, logout: async () => undefined });
+const Ctx = createContext<AuthCtx>({
+  authRequired: false,
+  logout: async () => undefined,
+  recheck: async () => undefined,
+});
 export const useAuth = () => useContext(Ctx);
 
 type State = "checking" | "ok" | "login";
@@ -55,5 +61,5 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }, [router]);
 
   if (!onLoginPage && state !== "ok") return null;
-  return <Ctx.Provider value={{ authRequired, logout }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ authRequired, logout, recheck: check }}>{children}</Ctx.Provider>;
 }
