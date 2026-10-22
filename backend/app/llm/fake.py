@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 
 from app.agent.router import Mode, RouteDecision
 from app.agent.schemas import (
+    BeatCheck,
     CandidateNote,
     DiagramDraft,
     ExtractedNotes,
@@ -19,7 +20,10 @@ from app.agent.schemas import (
     SourceCitation,
     SourceNote,
     SourceNotes,
+    TeachBackScore,
     TrackClassification,
+    WalkthroughDraft,
+    WalkthroughStep,
     WhyMatters,
 )
 from app.llm.client import LLMClient, ModelKind, T, UsageTracker
@@ -39,6 +43,52 @@ def _content_words(text: str) -> set[str]:
 
 def _q(text: str) -> str:
     return text.replace('"', "'")
+
+
+def _fake_teach_back(user: str) -> TeachBackScore:
+    transcript = _field(user, "TRANSCRIPT")
+    sentences = [s for s in _SENTENCE.split(transcript) if len(s.split()) >= 3] or [transcript]
+    cues = {
+        "what": r"\b(is|are|means|called|refers to)\b",
+        "how": r"\b(by|works?|first|then|step|uses?|using)\b",
+        "why": r"\b(because|so that|in order to|reason|helps)\b",
+        "impact": r"\b(result|impact|leads? to|which means|ends up|benefit|difference)\b",
+    }
+    beats: dict[str, BeatCheck] = {}
+    for name, pattern in cues.items():
+        hit = next((s for s in sentences if re.search(pattern, s, re.I)), None)
+        beats[name] = BeatCheck(
+            present=hit is not None, evidence=" ".join(hit.split()[:8]) if hit else ""
+        )
+    present = sum(1 for b in beats.values() if b.present)
+    weak = max(sentences, key=lambda s: len(s.split()))
+    fixes = {
+        "what": "Start by saying plainly what it is.",
+        "how": "Next time, walk through how it works step by step.",
+        "why": "Try adding why it works that way.",
+        "impact": "Finish with the difference it makes in practice.",
+    }
+    to_fix = next(
+        (fixes[n] for n, b in beats.items() if not b.present),
+        "Try shortening your longest sentence.",
+    )
+    return TeachBackScore(
+        what=beats["what"],
+        how=beats["how"],
+        why=beats["why"],
+        impact=beats["impact"],
+        clarity=min(100, 40 + 15 * present),
+        clarity_reason="Scored from how many of the four parts were covered.",
+        well_done="You explained it in your own words, which is the hard part.",
+        to_fix=to_fix,
+        suggestions=[
+            "Use shorter sentences.",
+            "Signpost with first, then, so.",
+            to_fix,
+        ],
+        weak_sentence=" ".join(weak.split()),
+        rewrite=" ".join(weak.split()[:14]).rstrip(",;:") + ".",
+    )
 
 
 class FakeLLM(LLMClient):
@@ -134,6 +184,34 @@ class FakeLLM(LLMClient):
                         )
                     )
             return schema.model_validate(SourceNotes(notes=found).model_dump())
+        if schema is TeachBackScore:
+            return schema.model_validate(_fake_teach_back(user).model_dump())
+        if schema is WalkthroughDraft:
+            text = user.lower()
+            if not any(
+                k in text for k in ("pointer", "binary search", "sliding window", "prefix sum")
+            ):
+                return schema.model_validate(WalkthroughDraft(applicable=False).model_dump())
+            walk_steps = [
+                WalkthroughStep(
+                    caption="Start with a pointer at each end.",
+                    pointers={"left": 0, "right": 5},
+                    highlight=[0, 5],
+                ),
+                WalkthroughStep(
+                    caption="The sum is too small, so move left up.",
+                    pointers={"left": 1, "right": 5},
+                    highlight=[1],
+                ),
+                WalkthroughStep(
+                    caption="Found the pair.", pointers={"left": 1, "right": 4}, highlight=[1, 4]
+                ),
+            ]
+            return schema.model_validate(
+                WalkthroughDraft(
+                    applicable=True, array=["1", "3", "5", "7", "9", "11"], steps=walk_steps
+                ).model_dump()
+            )
         if schema is WhyMatters:
             return schema.model_validate(
                 WhyMatters(

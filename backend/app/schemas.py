@@ -285,8 +285,9 @@ class ArticulationPoint(BaseModel):
     date: date
     clarity: float
     structure: float
-    filler_rate: float
-    wpm: float
+    filler_rate: float  # filler words per 100 words
+    wpm: float | None = None  # null when only typed answers that day
+    sessions: int = 1
 
 
 class StatsOut(BaseModel):
@@ -308,5 +309,5 @@ class StatsOut(BaseModel):
     average_retrievability: float | None = None
     retention_curve: list[RetentionPoint]
     weak_nodes: list[WeakNodeOut]
-    # Filled by the English track's teach-back scoring (Phase 6); empty until then.
+    # Daily averages of teach-back scores (all tracks: articulation is one skill).
     articulation_trend: list[ArticulationPoint] = Field(default_factory=list)

@@ -7,7 +7,7 @@ from app.agent.state import AgentState, DiagramItem, LinkItem
 from app.db.models import NoteLink
 from app.services import notes as notes_svc
 from app.services import reviews as reviews_svc
-from app.services.diagrams import build_diagram, save_diagram
+from app.services.diagrams import build_note_diagram, save_diagram
 from app.services.links import propose_links
 
 log = logging.getLogger(__name__)
@@ -35,9 +35,7 @@ async def enrich_node(deps: AgentDeps, state: AgentState) -> AgentState:
             if note is None:  # undone while we were working
                 continue
             try:
-                kind, source = await build_diagram(
-                    deps.llm, title=note.title, body_md=note.body_md, session_id=state.session_id
-                )
+                kind, source = await build_note_diagram(deps.llm, note, session_id=state.session_id)
                 await save_diagram(db, note.id, kind, source)
                 diagrams.append(DiagramItem(note_id=note.id, kind=kind.value, source=source))
             except Exception:

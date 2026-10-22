@@ -9,14 +9,15 @@ import { NotePane } from "@/components/NotePane";
 import { ReadBackBar } from "@/components/ReadBackBar";
 import { TranscriptStream } from "@/components/TranscriptStream";
 import { VoiceOrb, type OrbState } from "@/components/VoiceOrb";
-import { getDiagram, getDue, listNotes, setNoteConfirmed, undoCapture } from "@/lib/api";
+import { getDiagram, getDue, listNotes, listTracks, setNoteConfirmed, undoCapture } from "@/lib/api";
 import { MicCapture, PcmPlayer } from "@/lib/audio";
 import type { ServerEvent } from "@/lib/events";
 import { useSessionStore } from "@/lib/store";
+import { TeachBackPanel } from "@/components/TeachBackPanel";
+import { useTrack } from "@/lib/track";
 import { useRefreshOnFocus } from "@/lib/useRefreshOnFocus";
 import { VoiceSocket } from "@/lib/ws";
 
-const TRACK = "ai-eng";
 const STATUS_LABEL = { connecting: "Connecting", connected: "Connected", closed: "Disconnected" };
 
 type MicMode = "off" | "open" | "ptt";
@@ -39,6 +40,14 @@ export function SessionView({
   briefId = null,
 }: Props) {
   const s = useSessionStore();
+  const { track: TRACK, hydrated, hydrate } = useTrack();
+  useEffect(hydrate, [hydrate]);
+  const [trackName, setTrackName] = useState<string | null>(null);
+  useEffect(() => {
+    listTracks()
+      .then((all) => setTrackName(all.find((t) => t.slug === TRACK)?.name ?? null))
+      .catch(() => undefined);
+  }, [TRACK]);
   const { apply, setConnection, setNotes, syncNotes, setDiagram, undone, markSaved } = s;
   const socket = useRef<VoiceSocket | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -59,7 +68,7 @@ export function SessionView({
       getDue(TRACK)
         .then((d) => setDueCount(d.total_due))
         .catch(() => undefined),
-    [],
+    [TRACK],
   );
   // Pick up notes and due counts changed on another device when this one comes to the foreground.
   useRefreshOnFocus(() => {
@@ -95,6 +104,7 @@ export function SessionView({
   );
 
   useEffect(() => {
+    if (!hydrated) return; // wait for the saved track so we do not connect to the wrong one
     const audioOut = player.current;
     const voice = new VoiceSocket({ onEvent, onStatus: setConnection });
     socket.current = voice;
@@ -118,7 +128,7 @@ export function SessionView({
       void capture.stop();
       audioOut.flush();
     };
-  }, [onEvent, setConnection, setNotes]);
+  }, [onEvent, setConnection, setNotes, TRACK, hydrated]);
 
   const ready = s.connection === "connected" && !!s.sessionId;
 
@@ -201,6 +211,11 @@ export function SessionView({
             ? "listening"
             : "idle";
 
+  function startTeachBack(topic: string | null) {
+    void player.current.unlock();
+    socket.current?.send({ type: "teachback_start", topic });
+  }
+
   const showLadder = variant === "review" || s.quiz !== null;
   const ladder = (
     <HintLadder
@@ -222,7 +237,7 @@ export function SessionView({
               {briefId ? "Daily brief" : variant === "review" ? "Review" : "Recall"}
             </h1>
             <p className="text-sm opacity-70">
-              Track: AI Engineering (<code>{TRACK}</code>) · mode{" "}
+              Track: {trackName ?? TRACK} (<code>{TRACK}</code>) · mode{" "}
               <span data-testid="mode">{s.mode.replace("_", " ")}</span>
             </p>
           </div>
@@ -360,6 +375,16 @@ export function SessionView({
               markSaved();
               void listNotes(TRACK).then(syncNotes);
             }}
+          />
+        )}
+        {variant === "session" && (
+          <TeachBackPanel
+            view={s.teachBack}
+            ready={ready}
+            onStart={startTeachBack}
+            onDone={() => socket.current?.send({ type: "teachback_done", cancel: false })}
+            onCancel={() => socket.current?.send({ type: "teachback_done", cancel: true })}
+            onClose={s.dismissTeachBack}
           />
         )}
         <NotePane

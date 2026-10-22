@@ -84,10 +84,49 @@ export function layoutCurve(
 }
 
 /** The data point nearest a horizontal pixel position, or null when there are none. */
-export function nearestPoint(g: Geometry, px: number): Geometry["points"][number] | null {
-  let best: Geometry["points"][number] | null = null;
+export function nearestPoint<P extends { x: number }>(g: { points: P[] }, px: number): P | null {
+  let best: P | null = null;
   for (const p of g.points) {
     if (best === null || Math.abs(p.x - px) < Math.abs(best.x - px)) best = p;
   }
   return best;
+}
+
+export interface TrendPoint {
+  date: string;
+  value: number;
+}
+
+export interface TrendGeometry {
+  points: { x: number; y: number; src: TrendPoint; index: number }[];
+  line: string;
+  min: number;
+  max: number;
+}
+
+/**
+ * Lay out one measure over time in a width x height box. Points are spaced evenly (one per
+ * practice day), the y range is padded so a flat series still sits mid-chart.
+ */
+export function layoutTrend(
+  series: TrendPoint[],
+  width: number,
+  height: number,
+  pad = { left: 6, right: 44, top: 8, bottom: 8 },
+  domain?: [number, number],
+): TrendGeometry {
+  const values = series.map((p) => p.value);
+  let lo = domain ? domain[0] : Math.min(...values);
+  let hi = domain ? domain[1] : Math.max(...values);
+  if (hi - lo < 1e-9) {
+    lo -= 1;
+    hi += 1;
+  }
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const x = (i: number) => pad.left + (series.length <= 1 ? innerW / 2 : (i / (series.length - 1)) * innerW);
+  const y = (v: number) => pad.top + (1 - (v - lo) / (hi - lo)) * innerH;
+  const points = series.map((src, index) => ({ x: x(index), y: y(src.value), src, index }));
+  const line = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join("");
+  return { points, line, min: lo, max: hi };
 }

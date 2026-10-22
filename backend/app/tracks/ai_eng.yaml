@@ -4,3 +4,7 @@ description: LLMs, agents, RAG, evals and systems. Concept notes and architectur
 endpointing:
   silence_ms: 700
   capture_silence_ms: 1200
+teach_back_ideas:
+  - Explain how retrieval augmented generation works
+  - Explain why chunk size matters
+  - Explain what an embedding is

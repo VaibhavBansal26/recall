@@ -9,9 +9,9 @@ def test_healthz(client: TestClient) -> None:
     assert r.json() == {"status": "ok", "db": "up", "voice_provider": "fake"}
 
 
-def test_ai_eng_track_is_synced_from_yaml(client: TestClient) -> None:
+def test_every_track_yaml_is_synced_to_the_database(client: TestClient) -> None:
     slugs = [t["slug"] for t in client.get("/api/tracks").json()]
-    assert slugs == ["ai-eng"]
+    assert slugs == ["ai-eng", "dsa", "english", "solutions"]
 
 
 def test_create_and_fetch_session(client: TestClient) -> None:

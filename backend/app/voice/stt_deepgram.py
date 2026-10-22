@@ -25,6 +25,7 @@ class TranscriptAssembler:
 
     def __init__(self) -> None:
         self._finals: list[str] = []
+        self._words: list[dict[str, float | str]] = []
         self._confidence: float | None = None
 
     def feed(self, msg: dict[str, Any]) -> list[SttEvent]:
@@ -39,6 +40,15 @@ class TranscriptAssembler:
             if text:
                 self._finals.append(text)
                 self._confidence = alt.get("confidence")
+                self._words.extend(
+                    {
+                        "w": str(w.get("punctuated_word") or w.get("word", "")),
+                        "start": float(w["start"]),
+                        "end": float(w["end"]),
+                    }
+                    for w in alt.get("words", [])
+                    if "start" in w and "end" in w
+                )
             if msg.get("speech_final") or msg.get("from_finalize"):
                 return self.flush()
             return [SttEvent(" ".join(self._finals), False)] if self._finals else []
@@ -49,8 +59,8 @@ class TranscriptAssembler:
     def flush(self) -> list[SttEvent]:
         if not self._finals:
             return []
-        event = SttEvent(" ".join(self._finals), True, self._confidence)
-        self._finals, self._confidence = [], None
+        event = SttEvent(" ".join(self._finals), True, self._confidence, self._words or None)
+        self._finals, self._words, self._confidence = [], [], None
         return [event]
 
 

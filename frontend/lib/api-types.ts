@@ -549,7 +549,12 @@ export interface components {
             /** Filler Rate */
             filler_rate: number;
             /** Wpm */
-            wpm: number;
+            wpm?: number | null;
+            /**
+             * Sessions
+             * @default 1
+             */
+            sessions: number;
         };
         /** AuthStatus */
         AuthStatus: {
@@ -628,7 +633,7 @@ export interface components {
          * DiagramKind
          * @enum {string}
          */
-        DiagramKind: "mermaid" | "steps";
+        DiagramKind: "mermaid" | "steps" | "walkthrough";
         /** DiagramOut */
         DiagramOut: {
             /**

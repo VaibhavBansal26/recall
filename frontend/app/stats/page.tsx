@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { RetentionChart } from "@/components/RetentionChart";
 import { getStats, type StatsOut } from "@/lib/api";
-import { pct } from "@/lib/stats";
+import { TrendChart } from "@/components/TrendChart";
+import { pct, shortDate } from "@/lib/stats";
+import { useTrack } from "@/lib/track";
 import { useRefreshOnFocus } from "@/lib/useRefreshOnFocus";
 
 function Tile({
@@ -49,17 +51,18 @@ function StrengthMeter({ value, fragile }: { value: number | null; fragile: bool
 }
 
 export default function StatsPage() {
+  const track = useTrack((t) => t.track);
   const [stats, setStats] = useState<StatsOut | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      setStats(await getStats("ai-eng"));
+      setStats(await getStats(track));
       setError(null);
     } catch {
       setError("Could not load your stats.");
     }
-  }, []);
+  }, [track]);
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -170,18 +173,73 @@ export default function StatsPage() {
         )}
       </section>
 
-      <section
-        aria-label="Articulation"
-        className="rounded-xl border border-dashed border-neutral-300 p-4 text-sm dark:border-neutral-700"
-      >
+      <section aria-label="Articulation" className="flex flex-col gap-3 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
         <h2 className="text-sm font-semibold uppercase tracking-wide opacity-60">
           Articulation trend
         </h2>
-        <p className="mt-1 opacity-70">
-          {articulation.length === 0
-            ? "Appears once you practise explaining out loud in the English track."
-            : `${articulation.length} teach-back sessions recorded.`}
-        </p>
+        {articulation.length === 0 ? (
+          <p className="text-sm opacity-70">
+            Appears once you practise explaining out loud. Start a teach-back on the Session page.
+          </p>
+        ) : (
+          <>
+            <p className="text-sm opacity-70">
+              {articulation.reduce((n, a) => n + (a.sessions ?? 1), 0)} teach-backs across all tracks.
+            </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <TrendChart
+                title="Clarity"
+                series={articulation.map((a) => ({ date: a.date, value: a.clarity }))}
+                format={(v) => `${Math.round(v)}`}
+                domain={[0, 100]}
+              />
+              <TrendChart
+                title="Structure"
+                series={articulation.map((a) => ({ date: a.date, value: a.structure }))}
+                format={(v) => `${Math.round(v)}`}
+                domain={[0, 100]}
+              />
+              <TrendChart
+                title="Filler words"
+                series={articulation.map((a) => ({ date: a.date, value: a.filler_rate }))}
+                format={(v) => `${v.toFixed(1)} per 100`}
+                lowerIsBetter
+              />
+              <TrendChart
+                title="Pace"
+                series={articulation.flatMap((a) =>
+                  a.wpm == null ? [] : [{ date: a.date, value: a.wpm }],
+                )}
+                format={(v) => `${Math.round(v)} wpm`}
+              />
+            </div>
+            <details>
+              <summary className="cursor-pointer text-xs opacity-70">View as table</summary>
+              <table className="mt-2 w-full text-left text-sm" data-testid="articulation-table">
+                <thead>
+                  <tr className="opacity-60">
+                    <th className="py-1 font-normal">Day</th>
+                    <th className="py-1 font-normal">Clarity</th>
+                    <th className="py-1 font-normal">Structure</th>
+                    <th className="py-1 font-normal">Fillers / 100</th>
+                    <th className="py-1 font-normal">Pace</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {articulation.map((a) => (
+                    <tr key={a.date} className="border-t border-neutral-200 dark:border-neutral-800">
+                      <td className="py-1">{shortDate(a.date)}</td>
+                      <td className="py-1">{Math.round(a.clarity)}</td>
+                      <td className="py-1">{Math.round(a.structure)}</td>
+                      <td className="py-1">{a.filler_rate.toFixed(1)}</td>
+                      <td className="py-1">{a.wpm == null ? "–" : `${Math.round(a.wpm)} wpm`}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          </>
+        )}
       </section>
     </main>
   );

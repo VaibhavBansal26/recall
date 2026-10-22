@@ -2,6 +2,42 @@
 
 Newest first. Anything that differs from `CLAUDE.md` goes here with the reason.
 
+## Phase 6: more tracks and articulation scoring
+
+- **The `realtime` voice provider is not built.** The spec calls it optional. It needs an
+  OpenAI Realtime or ElevenLabs Conversational key and a second turn loop that bypasses the
+  router, notes and hint ladder, so it would be a parallel product rather than a provider swap.
+  Parked in `IDEAS.md`. `VOICE_PROVIDER` still accepts `fake` and `pipeline`.
+- **Tracks differ through YAML `guidance` blocks, not code paths.** Each track can add text for
+  capture, explain, quiz, review, links, diagram and teach_back. It is appended to the shared prompt
+  (`guidance_for`). ai-eng has none, so its prompts are byte-for-byte what they were. Only two things
+  are flags: `walkthrough_diagrams` (dsa) and the longer `capture_silence_ms` (english).
+- **DSA walkthroughs are a new diagram kind, `walkthrough`**, stored as validated JSON (array, pointers
+  per step, highlighted cells, caption). The model drafts it, code validates indexes and sizes, one
+  retry with the reason, then it falls back to a Mermaid diagram. It is not a Postgres-enum rename:
+  the value was added with `ALTER TYPE ... ADD VALUE`.
+- **Objective metrics are computed in code, never by the LLM** (`services/scoring.py`). Pace needs
+  word timings, so typed input shows "–" for pace instead of a made-up number. Word timings from
+  Deepgram are stored in `utterances.words`.
+- **Filler "like" is a heuristic.** It counts "like" only when it is not a verb or comparison
+  (for example "I like it", "like a tree" are not fillers). It will be wrong sometimes; um, uh, er,
+  hmm, basically and actually are exact. "you know" counts only when set off by punctuation.
+- **LLM scoring is checked against the transcript.** A beat (what/how/why/impact) counts as present
+  only if its evidence quote appears verbatim in what was said; otherwise it is downgraded to missing.
+  The rewrite of a weak sentence is dropped unless that sentence is really in the transcript.
+  Structure is computed from the beats (present/4 x 100); the LLM supplies clarity.
+- **Teach-back segments are not captured as notes.** While listening, the assistant stays silent
+  and stores utterances only; "I'm done" (or the button) ends and scores it. Under 15 words is
+  "too short" and is not stored as a score.
+- **The articulation trend spans all tracks**, one point per day, because the skill is the same
+  whichever topic you explained. It is shown as four small charts (one scale each), not one
+  dual-axis chart.
+- **The track choice is per device** (localStorage), not synced, so the phone can be on English
+  while the laptop is on DSA.
+- **The fake LLM does not show real differences between tracks.** Tests prove each track's guidance
+  reaches the right prompts; whether a real model writes visibly different notes is unmeasured
+  until keys exist.
+
 ## Phase 5: daily brief and stats
 
 - **"Today" is the user's day.** `USER_TIMEZONE` (an IANA name, validated at startup) decides which

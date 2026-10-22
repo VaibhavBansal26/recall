@@ -14,6 +14,7 @@ from app.agent.prompts import load_prompt
 from app.agent.schemas import QuizTurn
 from app.db.models import PromptKind, ReviewItem
 from app.services import reviews as reviews_svc
+from app.tracks import guidance_for
 from app.voice.events import QuizStateEvent, QuizSummary
 
 _NO_ANSWER = re.compile(
@@ -213,7 +214,7 @@ class QuizSession:
         )
         return await self.deps.llm.complete_structured(
             "fast",
-            system=load_prompt("quiz_turn").text,
+            system=load_prompt("quiz_turn").text + guidance_for(item.note.track.slug, "quiz"),
             user=user,
             schema=QuizTurn,
             session_id=self.session_id,

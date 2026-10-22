@@ -10,6 +10,7 @@ from app.agent.state import AgentState, CaptureItem
 from app.db.models import CaptureEvent, Note, NoteOrigin
 from app.services.capture import file_candidate
 from app.services.sessions import get_track
+from app.tracks import guidance_for
 
 log = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ async def capture_node(deps: AgentDeps, state: AgentState) -> AgentState:
 
         system = extract_prompt.text.format(
             track_name=track.name, track_description=track.config.get("description", "")
-        )
+        ) + guidance_for(track.slug, "capture")
         context = "\n".join(state.transcript_window) or "(none)"
         extracted = await deps.llm.complete_structured(
             "deep",

@@ -17,13 +17,18 @@ import {
 } from "@/lib/api";
 import type { DiagramItem } from "@/lib/events";
 import { strengthColor } from "@/lib/layout";
+import { useTrack } from "@/lib/track";
 import { useRefreshOnFocus } from "@/lib/useRefreshOnFocus";
 
 const EMPTY: GraphOut = { nodes: [], edges: [] };
 
 export default function MapPage() {
   const [tracks, setTracks] = useState<TrackOut[]>([]);
-  const [track, setTrack] = useState<string>("ai-eng");
+  const savedTrack = useTrack((t) => t.track);
+  // "All tracks" is a view choice here only; it does not change the app-wide track.
+  const [chosen, setChosen] = useState<string | null>(null);
+  const track = chosen ?? savedTrack;
+  const setTrack = setChosen;
   const [graph, setGraph] = useState<GraphOut>(EMPTY);
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

@@ -5,7 +5,9 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { getDue, listSources } from "@/lib/api";
 import { useRefreshOnFocus } from "@/lib/useRefreshOnFocus";
+import { useTrack } from "@/lib/track";
 import { useAuth } from "./AuthGate";
+import { TrackSwitcher } from "./TrackSwitcher";
 
 const LINKS = [
   { href: "/session", label: "Session" },
@@ -18,17 +20,18 @@ const LINKS = [
 export function Nav() {
   const path = usePathname();
   const { authRequired, logout } = useAuth();
+  const track = useTrack((t) => t.track);
   const [due, setDue] = useState<number | null>(null);
   const [awaiting, setAwaiting] = useState(0);
   const refresh = useCallback(
     () =>
       Promise.all([
-        getDue().then((d) => setDue(d.total_due)),
+        getDue(track).then((d) => setDue(d.total_due)),
         listSources().then((s) => setAwaiting(s.filter((x) => x.status === "ready").length)),
       ])
         .then(() => undefined)
         .catch(() => undefined),
-    [],
+    [track],
   );
   useEffect(() => {
     if (path !== "/login") void refresh();
@@ -66,8 +69,11 @@ export function Nav() {
             </Link>
           </li>
         ))}
+        <li className="ml-auto">
+          <TrackSwitcher />
+        </li>
         {authRequired && (
-          <li className="ml-auto">
+          <li>
             <button type="button" onClick={() => void logout()} className="py-1 opacity-70">
               Sign out
             </button>

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, TypeAdapter
 
 from app.agent.state import CaptureItem, DiagramItem, LinkItem
 from app.db.models import Speaker
+from app.services.scoring import Metrics
 
 # ---- client -> server ----
 
@@ -54,6 +55,20 @@ class QuizActionEvent(BaseModel):
     action: Literal["hint", "forgot", "skip", "end"]
 
 
+class TeachBackStartEvent(BaseModel):
+    """Begin a teach-back: the learner will explain `topic` out loud."""
+
+    type: Literal["teachback_start"] = "teachback_start"
+    topic: str | None = None
+
+
+class TeachBackDoneEvent(BaseModel):
+    """The learner has finished explaining (button equivalent of "I'm done")."""
+
+    type: Literal["teachback_done"] = "teachback_done"
+    cancel: bool = False
+
+
 ClientMessage = (
     StartEvent
     | TextEvent
@@ -62,6 +77,8 @@ ClientMessage = (
     | EndSpeechEvent
     | QuizStartEvent
     | QuizActionEvent
+    | TeachBackStartEvent
+    | TeachBackDoneEvent
 )
 ClientEvent = Annotated[ClientMessage, Field(discriminator="type")]
 client_event_adapter: TypeAdapter[ClientMessage] = TypeAdapter(ClientEvent)
@@ -171,6 +188,35 @@ class ConfusionEvent(BaseModel):
     note_id: uuid.UUID | None = None
 
 
+class TeachBackBeat(BaseModel):
+    present: bool
+    evidence: str = ""
+
+
+class TeachBackRewrite(BaseModel):
+    original: str
+    improved: str
+
+
+class TeachBackEvent(BaseModel):
+    """Teach-back progress and, once scored, the objective metrics plus structure scoring."""
+
+    type: Literal["teachback"] = "teachback"
+    phase: Literal["listening", "scoring", "scored", "too_short", "cancelled"]
+    topic: str = ""
+    words: int = 0
+    ideas: list[str] = []
+    metrics: Metrics | None = None
+    beats: dict[str, TeachBackBeat] | None = None
+    clarity: float | None = None
+    structure: float | None = None
+    clarity_reason: str = ""
+    well_done: str = ""
+    to_fix: str = ""
+    suggestions: list[str] = []
+    rewrite: TeachBackRewrite | None = None
+
+
 class ModeEvent(BaseModel):
     type: Literal["mode"] = "mode"
     mode: str
@@ -216,6 +262,7 @@ ServerEvent = (
     | ExplainEvent
     | ReadBackEvent
     | ConfusionEvent
+    | TeachBackEvent
     | ModeEvent
     | DiagramEvent
     | LinksEvent

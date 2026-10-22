@@ -87,13 +87,10 @@ def db_exec(sql: str) -> None:
 
 @pytest.fixture
 def second_track() -> Iterator[None]:
-    db_exec(
-        "INSERT INTO tracks (slug, name, config) VALUES ('dsa', 'Data Structures', '{\"description\": \"Algorithms\"}')"
-    )
+    """The DSA track (a real one now) as the alternative to ai-eng; clean up what is filed in it."""
     yield
     db_exec("DELETE FROM sources")
     db_exec("DELETE FROM notes")
-    db_exec("DELETE FROM tracks WHERE slug = 'dsa'")
 
 
 # ---- the happy path ----
@@ -283,10 +280,13 @@ def test_notes_with_fabricated_or_missing_citations_are_dropped(
 # ---- classification and the "which track?" question ----
 
 
-def test_a_single_track_needs_no_classification(client: TestClient, stub: StubFetcher) -> None:
+def test_with_several_tracks_and_no_hint_the_model_classifies_once(
+    client: TestClient, stub: StubFetcher
+) -> None:
     llm = swap_llm(client, {})
-    ingest(client, stub)
-    assert TrackClassification not in llm.calls
+    d = detail(client, ingest(client, stub))
+    assert d["status"] == "ready" and d["track"] == "ai-eng"  # the fake picks the first listed
+    assert llm.calls.count(TrackClassification) == 1
 
 
 def test_a_track_hint_skips_classification(

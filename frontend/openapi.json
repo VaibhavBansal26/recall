@@ -1313,8 +1313,20 @@
             "title": "Filler Rate"
           },
           "wpm": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Wpm"
+          },
+          "sessions": {
+            "type": "integer",
+            "title": "Sessions",
+            "default": 1
           }
         },
         "type": "object",
@@ -1322,8 +1334,7 @@
           "date",
           "clarity",
           "structure",
-          "filler_rate",
-          "wpm"
+          "filler_rate"
         ],
         "title": "ArticulationPoint"
       },
@@ -1507,7 +1518,8 @@
         "type": "string",
         "enum": [
           "mermaid",
-          "steps"
+          "steps",
+          "walkthrough"
         ],
         "title": "DiagramKind"
       },

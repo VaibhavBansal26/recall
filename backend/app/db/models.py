@@ -83,6 +83,7 @@ class PromptKind(enum.StrEnum):
 class DiagramKind(enum.StrEnum):
     mermaid = "mermaid"
     steps = "steps"
+    walkthrough = "walkthrough"  # JSON: an array and, per step, pointer positions (DSA)
 
 
 class CaptureAction(enum.StrEnum):
@@ -138,6 +139,8 @@ class Utterance(Base):
         DateTime(timezone=True), default=_now, server_default=sql_text("now()")
     )
     confidence: Mapped[float | None] = mapped_column(Float)
+    # Word timings from streaming STT, [{"w", "start", "end"}] in seconds; null for typed turns.
+    words: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
     # Assistant turn cut off by barge-in; `text` holds what was actually spoken.
     interrupted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
@@ -425,3 +428,25 @@ class DailyBrief(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     track: Mapped[Track] = relationship(lazy="joined")
+
+
+class ArticulationScore(Base):
+    """One teach-back attempt: metrics computed in code, plus the model's structure scoring."""
+
+    __tablename__ = "articulation_scores"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()")
+    )
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("sessions.id", ondelete="SET NULL")
+    )
+    note_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("notes.id", ondelete="SET NULL"))
+    clarity: Mapped[float] = mapped_column(Float)  # 0-100, from the model
+    structure: Mapped[float] = mapped_column(Float)  # 0-100: share of what/how/why/impact present
+    filler_rate: Mapped[float] = mapped_column(Float)  # filler words per 100 words
+    wpm: Mapped[float | None] = mapped_column(Float)  # null for typed answers (no timings)
+    feedback: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, server_default=sql_text("now()"), index=True
+    )

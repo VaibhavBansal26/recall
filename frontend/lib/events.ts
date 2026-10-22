@@ -10,7 +10,9 @@ export type ClientEvent =
   | { type: "speech_start" }
   | { type: "end_speech" }
   | { type: "quiz"; note_id?: string | null; brief_id?: string | null }
-  | { type: "quiz_action"; action: "hint" | "forgot" | "skip" | "end" };
+  | { type: "quiz_action"; action: "hint" | "forgot" | "skip" | "end" }
+  | { type: "teachback_start"; topic?: string | null }
+  | { type: "teachback_done"; cancel?: boolean };
 
 export interface CaptureItem {
   event_id: string;
@@ -27,7 +29,7 @@ export interface CaptureItem {
 
 export interface DiagramItem {
   note_id: string;
-  kind: "mermaid" | "steps";
+  kind: "mermaid" | "steps" | "walkthrough";
   source: string;
 }
 
@@ -50,6 +52,31 @@ export interface QuizSummary {
   hinted: number;
   revealed: number;
   fragile: number;
+}
+
+export type TeachBackPhase = "listening" | "scoring" | "scored" | "too_short" | "cancelled";
+export type BeatName = "what" | "how" | "why" | "impact";
+
+export interface TeachBackMetrics {
+  word_count: number;
+  duration_s: number | null;
+  wpm: number | null;
+  filler_count: number;
+  filler_rate: number;
+  fillers: Record<string, number>;
+  long_pauses: number;
+  longest_pause_s: number;
+  pauses: { after_word: string; seconds: number }[];
+  sentences: {
+    count: number;
+    mean: number;
+    median: number;
+    longest: number;
+    short: number;
+    medium: number;
+    long: number;
+    punctuated: boolean;
+  };
 }
 
 export type QuizPhase = "asking" | "hint" | "graded" | "ended" | "empty";
@@ -95,6 +122,22 @@ export type ServerEvent =
       why: string | null;
       speed: number;
       finished: boolean;
+    }
+  | {
+      type: "teachback";
+      phase: TeachBackPhase;
+      topic: string;
+      words: number;
+      ideas: string[];
+      metrics: TeachBackMetrics | null;
+      beats: Record<BeatName, { present: boolean; evidence: string }> | null;
+      clarity: number | null;
+      structure: number | null;
+      clarity_reason: string;
+      well_done: string;
+      to_fix: string;
+      suggestions: string[];
+      rewrite: { original: string; improved: string } | null;
     }
   | { type: "confusion"; trigger: string; note_id: string | null }
   | { type: "mode"; mode: string }
@@ -181,6 +224,22 @@ export interface ReadBackView {
   speed: number;
 }
 
+export interface TeachBackView {
+  phase: TeachBackPhase;
+  topic: string;
+  words: number;
+  ideas: string[];
+  metrics: TeachBackMetrics | null;
+  beats: Record<BeatName, { present: boolean; evidence: string }> | null;
+  clarity: number | null;
+  structure: number | null;
+  clarityReason: string;
+  wellDone: string;
+  toFix: string;
+  suggestions: string[];
+  rewrite: { original: string; improved: string } | null;
+}
+
 export interface Latency {
   sttToFirstTokenMs: number | null;
   firstTokenToAudioMs: number | null;
@@ -208,6 +267,7 @@ export interface ViewState {
   quizResults: QuizResult[];
   explanation: Explanation | null;
   readBack: ReadBackView | null;
+  teachBack: TeachBackView | null;
   /** The note the assistant is currently talking about (read-back, quiz); the diagram follows it. */
   focusNoteId: string | null;
   /** Set when confusion was detected, so the UI can say the note was marked fragile. */
@@ -232,6 +292,7 @@ export const initialViewState: ViewState = {
   quizResults: [],
   explanation: null,
   readBack: null,
+  teachBack: null,
   focusNoteId: null,
   confusion: null,
   error: null,
@@ -384,6 +445,26 @@ export function reduceEvent(state: ViewState, event: ServerEvent): ViewState {
         readBack: event.finished && event.note_id === null
           ? null
           : { index: event.index, total: event.total, title: event.title, speed: event.speed },
+      };
+    case "teachback":
+      if (event.phase === "cancelled") return { ...state, teachBack: null };
+      return {
+        ...state,
+        teachBack: {
+          phase: event.phase,
+          topic: event.topic,
+          words: event.words,
+          ideas: event.ideas,
+          metrics: event.metrics,
+          beats: event.beats,
+          clarity: event.clarity,
+          structure: event.structure,
+          clarityReason: event.clarity_reason,
+          wellDone: event.well_done,
+          toFix: event.to_fix,
+          suggestions: event.suggestions,
+          rewrite: event.rewrite,
+        },
       };
     case "confusion":
       return {

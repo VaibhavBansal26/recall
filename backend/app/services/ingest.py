@@ -36,6 +36,7 @@ from app.ingest.fetch import SafeFetcher
 from app.ingest.urls import detect_kind, normalize_url, youtube_video_id
 from app.services.capture import file_candidate
 from app.services.sessions import get_track, list_tracks
+from app.tracks import guidance_for
 
 log = logging.getLogger(__name__)
 
@@ -299,7 +300,7 @@ async def _extract(
 ) -> list[Candidate]:
     """Ask the model for notes per group of chunks, keeping only notes whose quotes check out."""
     settings = ctx.deps.settings
-    system = load_prompt("ingest_extract").text
+    system = load_prompt("ingest_extract").text + guidance_for(track.slug, "capture")
     sem = asyncio.Semaphore(3)
     groups = [chunks[i : i + GROUP_SIZE] for i in range(0, len(chunks), GROUP_SIZE)]
 

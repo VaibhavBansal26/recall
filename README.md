@@ -14,6 +14,7 @@ Voice-first learning companion (single user, local-first). The full spec and pha
 | 3 Recall engine | done (verified with fakes only) |
 | 4 Ingestion and n8n | done (fake LLM; real extraction quality unmeasured) |
 | 5 Daily brief and stats | done (verified with fakes) |
+| 6 More tracks, articulation scoring | done (fakes only; `realtime` provider not built) |
 
 ## Use it on laptop, iPhone and iPad
 
@@ -145,3 +146,19 @@ curl -X POST localhost:8000/api/sessions/daily-brief -H "X-Recall-Secret: $RECAL
 3. Set `USER_TIMEZONE` in `.env` (e.g. `Asia/Kolkata`) so "today" and the 07:30 / 18:00 schedules are yours.
 4. Evening nudge: set `NUDGE_URL` to an [ntfy](https://ntfy.sh) topic URL and `NUDGE_THRESHOLD`; only the
    count of waiting reviews is sent.
+
+## Phase 6 demo (works with no keys)
+
+Use the **Track** menu in the top bar; the choice is remembered on this device.
+
+| Track | Try saying | What differs |
+|---|---|---|
+| `dsa` | "Two pointers walks a left and a right pointer inward over a sorted array to find a pair." | Pattern/complexity notes; the diagram is a **step-by-step walkthrough** (Back/Next, arrow keys) |
+| `solutions` | "The problem is slow search. I tried a linear scan, then an index. The tradeoff is write cost. I chose the index." | Notes follow Problem / Approach / Tradeoff / Decision |
+| `english` | Start a teach-back (below) | Waits longer before cutting you off; teach-back is the focus |
+
+Teach-back (any track): in **Teach-back** type a topic (or leave it empty for a suggestion) and press
+Start, or say "let me teach it back". Explain it, then press **I'm done** or say "I'm done".
+You get pace, fillers per 100 words, long pauses, sentence length, the what/how/why/impact checklist,
+clarity, one thing done well, one thing to fix, and one weak sentence rewritten. **Stats** charts the trend.
+With the mic on (real Deepgram) pace and pauses are measured; typed text shows "–" for pace.

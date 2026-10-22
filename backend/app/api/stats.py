@@ -4,7 +4,8 @@ from fastapi import APIRouter
 
 from app.api.briefs import user_tz
 from app.api.deps import Db
-from app.schemas import RetentionPoint, StatsOut, WeakNodeOut
+from app.schemas import ArticulationPoint, RetentionPoint, StatsOut, WeakNodeOut
+from app.services import articulation as articulation_svc
 from app.services.stats import compute_stats
 
 router = APIRouter(prefix="/api")
@@ -13,7 +14,9 @@ router = APIRouter(prefix="/api")
 @router.get("/stats", response_model=StatsOut)
 async def stats(db: Db, track: str | None = None) -> StatsOut:
     """Due, retention, streaks, weakest notes. Read-only, so n8n's nudge may call it too."""
-    s = await compute_stats(db, track_slug=track, now=datetime.now(UTC), tz=user_tz())
+    now, tz = datetime.now(UTC), user_tz()
+    s = await compute_stats(db, track_slug=track, now=now, tz=tz)
+    trend = await articulation_svc.trend(db, now=now, tz=tz)
     return StatsOut(
         due_now=s.due_now,
         due_today=s.due_today,
@@ -47,5 +50,16 @@ async def stats(db: Db, track: str | None = None) -> StatsOut:
                 lapses=w.lapses,
             )
             for w in s.weak
+        ],
+        articulation_trend=[
+            ArticulationPoint(
+                date=p.day,
+                clarity=p.clarity,
+                structure=p.structure,
+                filler_rate=p.filler_rate,
+                wpm=p.wpm,
+                sessions=p.sessions,
+            )
+            for p in trend
         ],
     )

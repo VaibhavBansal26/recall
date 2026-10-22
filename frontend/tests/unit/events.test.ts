@@ -216,3 +216,40 @@ describe("mergeNotes", () => {
     expect(mergeNotes([card("a", "x", change)], [])).toEqual([]);
   });
 });
+
+describe("teach-back events", () => {
+  const base = {
+    type: "teachback" as const,
+    topic: "how an index works",
+    words: 0,
+    ideas: [],
+    metrics: null,
+    beats: null,
+    clarity: null,
+    structure: null,
+    clarity_reason: "",
+    well_done: "",
+    to_fix: "",
+    suggestions: [],
+    rewrite: null,
+  };
+
+  it("shows the live word count while listening", () => {
+    const listening = reduceEvent(initialViewState, { ...base, phase: "listening", words: 12 });
+    expect(listening.teachBack).toMatchObject({ phase: "listening", words: 12, topic: "how an index works" });
+  });
+
+  it("keeps the scored result, then clears when cancelled", () => {
+    const scored = reduceEvent(initialViewState, {
+      ...base,
+      phase: "scored",
+      clarity: 70,
+      structure: 75,
+      well_done: "Clear start.",
+      to_fix: "Say why it matters.",
+      rewrite: { original: "it is fast", improved: "it avoids scanning every row" },
+    });
+    expect(scored.teachBack).toMatchObject({ clarity: 70, structure: 75, toFix: "Say why it matters." });
+    expect(reduceEvent(scored, { ...base, phase: "cancelled" }).teachBack).toBeNull();
+  });
+});

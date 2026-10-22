@@ -1,0 +1,25 @@
+slug: english
+name: Spoken English
+description: Improving how clearly and fluently you explain things out loud. Teach-back with filler-word, pace and structure feedback.
+endpointing:
+  silence_ms: 900
+  capture_silence_ms: 1800
+teach_back_ideas:
+  - Explain how the internet works to a ten year old
+  - Explain what you did at work this week
+  - Explain why sleep matters
+guidance:
+  capture: |
+    Capture what the learner wants to say better: a useful phrase, a corrected sentence, or a rule of
+    phrasing. The title is the phrase or rule. The body gives the better wording and when to use it,
+    using the learner's own example.
+  explain: |
+    Explain usage in plain English with two short example sentences. Keep your own sentences short and
+    clear, since the learner is also listening to how you speak.
+  quiz: |
+    Ask the learner to say or complete a phrase aloud.
+  review: |
+    Write a cloze on the key phrase.
+  teach_back: |
+    This is the learner's main exercise. Focus on how they speak: order, sentence length, and
+    signposting ("first", "so", "which means"). Be especially gentle and specific.

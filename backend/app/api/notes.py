@@ -111,9 +111,7 @@ async def regenerate_diagram(note_id: uuid.UUID, db: Db, request: Request) -> Di
     note = await svc.get_note(db, note_id)
     if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
-    kind, source = await diagram_svc.build_diagram(
-        request.app.state.deps.llm, title=note.title, body_md=note.body_md
-    )
+    kind, source = await diagram_svc.build_note_diagram(request.app.state.deps.llm, note)
     diagram = await diagram_svc.save_diagram(db, note.id, kind, source)
     return DiagramOut(
         note_id=diagram.note_id,

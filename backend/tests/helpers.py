@@ -13,6 +13,7 @@ class ScriptedLLM(LLMClient):
     def __init__(self, *responses: BaseModel) -> None:
         self.responses = list(responses)
         self.users: list[str] = []
+        self.systems: list[str] = []
 
     async def complete_structured(
         self,
@@ -24,6 +25,7 @@ class ScriptedLLM(LLMClient):
         session_id: uuid.UUID | None = None,
     ) -> T:
         self.users.append(user)
+        self.systems.append(system)
         response: Any = self.responses.pop(0)
         assert isinstance(response, schema)
         return response
@@ -49,6 +51,7 @@ from app.db.models import NoteOrigin, PromptKind  # noqa: E402
 from app.embeddings import FakeEmbedder  # noqa: E402
 from app.services import notes as notes_svc  # noqa: E402
 from app.services import reviews as reviews_svc  # noqa: E402
+from app.services.sessions import get_track  # noqa: E402
 from tests.test_capture import run_db  # noqa: E402
 
 ItemSpec = tuple[str, str, PromptKind]
@@ -60,10 +63,13 @@ def seed_note(
     items: list[ItemSpec] | None = None,
     *,
     now: datetime | None = None,
+    track_slug: str = "ai-eng",
 ) -> tuple[uuid.UUID, list[uuid.UUID]]:
-    """Create an ai-eng note (with a fake embedding) and review items; return their ids."""
+    """Create a note (default track ai-eng, with a fake embedding) and review items; return ids."""
 
-    async def go(db: Any, track: Any) -> tuple[uuid.UUID, list[uuid.UUID]]:
+    async def go(db: Any, default_track: Any) -> tuple[uuid.UUID, list[uuid.UUID]]:
+        track = await get_track(db, track_slug)
+        assert track is not None
         note, _ = await notes_svc.create_note(
             db,
             track=track,

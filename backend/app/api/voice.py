@@ -20,6 +20,7 @@ from app.agent.nodes import read_back as read_back_node
 from app.agent.nodes.capture import ack_stream
 from app.agent.nodes.chitchat import chitchat_stream
 from app.agent.nodes.recall_quiz import QuizSession, QuizStep
+from app.agent.nodes.teach_back import TeachBackSession, suggest_topic
 from app.agent.router import Mode, Route, route_turn
 from app.agent.state import AgentState, DiagramItem
 from app.auth import COOKIE_NAME
@@ -62,6 +63,9 @@ from app.voice.events import (
     SessionEvent,
     SpeechStartEvent,
     StartEvent,
+    TeachBackDoneEvent,
+    TeachBackEvent,
+    TeachBackStartEvent,
     TextEvent,
     TranscriptEvent,
     UtteranceEvent,
@@ -118,6 +122,7 @@ class _Connection:
         self.quiz: QuizSession | None = None
         self.readback: read_back_node.ReadBackSession | None = None
         self.ingest_source_id: uuid.UUID | None = None
+        self.teachback: TeachBackSession | None = None
         self.speed: float = 1.0
         self.active_note_id: uuid.UUID | None = None  # last note we explained/read/quizzed
         self.last_topic: str | None = None
@@ -204,11 +209,16 @@ class _Connection:
             ):
                 await self.interrupt(announce=True)
             return
-        await self.user_turn(event.text, confidence=event.confidence)
+        await self.user_turn(event.text, confidence=event.confidence, words=event.words)
 
     # ---- the turn: route to a mode ----
 
-    async def user_turn(self, text: str, confidence: float | None = None) -> None:
+    async def user_turn(
+        self,
+        text: str,
+        confidence: float | None = None,
+        words: list[dict[str, Any]] | None = None,
+    ) -> None:
         if self.session_id is None:
             await self.out.send(ErrorEvent(message="Send a start event first"))
             return
@@ -217,7 +227,9 @@ class _Connection:
         # A new user turn while the assistant is talking is a barge-in.
         await self.interrupt(announce=True)
         async with self.deps.sessionmaker() as db:
-            stored = await svc.add_utterance(db, self.session_id, Speaker.user, text, confidence)
+            stored = await svc.add_utterance(
+                db, self.session_id, Speaker.user, text, confidence, words
+            )
         await self.out.send(UtteranceEvent(id=stored.id, speaker=Speaker.user, text=stored.text))
 
         state = AgentState(
@@ -240,10 +252,18 @@ class _Connection:
             await self._confusion_turn(trigger, previous or text, latency)
             return
 
-        await self._dispatch(route, state, latency)
+        await self._dispatch(route, state, latency, words)
 
-    async def _dispatch(self, route: Route, state: AgentState, latency: TurnLatency) -> None:
-        if route.mode == Mode.recall_quiz:
+    async def _dispatch(
+        self,
+        route: Route,
+        state: AgentState,
+        latency: TurnLatency,
+        words: list[dict[str, Any]] | None = None,
+    ) -> None:
+        if route.mode == Mode.teach_back:
+            await self._handle_teach_back(route, state, latency, words)
+        elif route.mode == Mode.recall_quiz:
             await self._handle_quiz(route, latency)
         elif route.mode == Mode.read_back:
             await self._handle_read_back(route, latency)
@@ -273,6 +293,8 @@ class _Connection:
         if mode != Mode.read_back:
             self.readback = None
             self.speed = 1.0
+        if mode != Mode.teach_back:
+            self.teachback = None
         await self._persist_mode(mode)
 
     async def _persist_mode(self, mode: Mode) -> None:
@@ -301,7 +323,9 @@ class _Connection:
 
         # The diagram is drawn alongside the spoken explanation, never words alone.
         diagram_task = asyncio.create_task(
-            explain_node.explain_diagram(self.deps, session_id=session_id, topic=topic, note=note)
+            explain_node.explain_diagram(
+                self.deps, session_id=session_id, topic=topic, note=note, track=self.track
+            )
         )
         self._bg.add(diagram_task)
         diagram_task.add_done_callback(self._bg.discard)
@@ -310,7 +334,12 @@ class _Connection:
 
         async def tokens() -> AsyncIterator[str]:
             async for token in explain_node.explain_stream(
-                self.deps, session_id=session_id, topic=topic, simple=simple, note=note
+                self.deps,
+                session_id=session_id,
+                topic=topic,
+                simple=simple,
+                note=note,
+                track=self.track,
             ):
                 spoken.append(token)
                 yield token
@@ -558,6 +587,68 @@ class _Connection:
                 await self._set_mode(Mode.capture)
         self._start_reply(_once(spoken), latency)
 
+    # ---- teach_back: the learner explains out loud; we listen, then score it ----
+
+    async def start_teachback(self, topic: str | None, latency: TurnLatency | None = None) -> None:
+        if self.session_id is None:
+            await self.out.send(ErrorEvent(message="Send a start event first"))
+            return
+        await self.interrupt(announce=True)
+        self._cancel_silence()
+        topic = (topic or "").strip() or suggest_topic(self.track)
+        self.teachback = TeachBackSession(self.deps, self.session_id, self.track, topic)
+        self.mode = Mode.teach_back
+        await self._persist_mode(self.mode)
+        await self.out.send(self.teachback.listening())
+        self._start_reply(
+            _once(
+                f"Okay. Explain {topic} in your own words, as if to a friend. "
+                "Take your time, and say I'm done when you've finished."
+            ),
+            latency or TurnLatency(),
+        )
+
+    async def _handle_teach_back(
+        self,
+        route: Route,
+        state: AgentState,
+        latency: TurnLatency,
+        words: list[dict[str, Any]] | None,
+    ) -> None:
+        command = route.command or "segment"
+        if command == "start" or self.teachback is None:
+            await self.start_teachback(route.topic, latency)
+            return
+        if command == "segment":  # part of the explanation: listen, never interrupt
+            await self.out.send(self.teachback.add(state.user_text, words))
+            return
+        await self.finish_teachback(cancel=command == "cancel", latency=latency)
+
+    async def finish_teachback(self, *, cancel: bool, latency: TurnLatency | None = None) -> None:
+        tb = self.teachback
+        if tb is None:
+            return
+        latency = latency or TurnLatency()
+        await self.interrupt(announce=True)
+        if cancel:
+            await self.out.send(TeachBackEvent(phase="cancelled", topic=tb.topic))
+            await self._set_mode(Mode.capture)
+            self._start_reply(_once("Okay, no problem. We'll skip the scoring."), latency)
+            return
+        await self.out.send(TeachBackEvent(phase="scoring", topic=tb.topic, words=tb.word_count))
+        related = await explain_node.find_related_note(self.deps, self.track, tb.topic)
+        event, feedback, _row = await tb.finish(note_id=related.id if related else None)
+        await self.out.send(event)
+        if feedback is None:
+            spoken = (
+                "That was a bit short to score. Try again with a few more sentences about "
+                f"{tb.topic}."
+            )
+        else:
+            spoken = feedback.spoken()
+        await self._set_mode(Mode.capture)
+        self._start_reply(_once(spoken), latency)
+
     # ---- ingest_review: what was filed from new material, and do you want to keep it ----
 
     async def _handle_ingest_review(self, route: Route, latency: TurnLatency) -> None:
@@ -642,11 +733,8 @@ class _Connection:
                 note = await notes_svc.get_note(db, note_id)
                 if note is None:
                     return
-                kind, source = await diagram_svc.build_diagram(
-                    self.deps.llm,
-                    title=note.title,
-                    body_md=note.body_md,
-                    session_id=self.session_id,
+                kind, source = await diagram_svc.build_note_diagram(
+                    self.deps.llm, note, session_id=self.session_id
                 )
                 diagram = await diagram_svc.save_diagram(db, note_id, kind, source)
             item = DiagramItem(note_id=note_id, kind=diagram.kind.value, source=diagram.source)
@@ -836,5 +924,9 @@ async def voice_ws(ws: WebSocket) -> None:
                     await conn.start_quiz(note_id=event.note_id)
             elif isinstance(event, QuizActionEvent):
                 await conn.quiz_action(event.action)
+            elif isinstance(event, TeachBackStartEvent):
+                await conn.start_teachback(event.topic)
+            elif isinstance(event, TeachBackDoneEvent):
+                await conn.finish_teachback(cancel=event.cancel)
     finally:
         await conn.close()

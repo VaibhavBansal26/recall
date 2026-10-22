@@ -8,6 +8,7 @@ from app.agent.prompts import load_prompt
 from app.db.models import DiagramKind, Note
 from app.services import retrieval
 from app.services.diagrams import build_diagram
+from app.tracks import guidance_for
 
 
 async def find_related_note(deps: AgentDeps, track: str, topic: str) -> Note | None:
@@ -33,12 +34,13 @@ def explain_stream(
     topic: str,
     simple: bool,
     note: Note | None,
+    track: str,
 ) -> AsyncIterator[str]:
     """Spoken explanation tokens. `simple` is the "I don't get it" version (rule 4)."""
     name = "explain_simple" if simple else "explain"
     return deps.llm.stream_text(
         "fast",
-        system=load_prompt(name).text,
+        system=load_prompt(name).text + guidance_for(track, "explain"),
         user=_user_message(topic, note),
         session_id=session_id,
         purpose=name,
@@ -46,7 +48,7 @@ def explain_stream(
 
 
 async def explain_diagram(
-    deps: AgentDeps, *, session_id: uuid.UUID, topic: str, note: Note | None
+    deps: AgentDeps, *, session_id: uuid.UUID, topic: str, note: Note | None, track: str
 ) -> tuple[DiagramKind, str]:
     """The diagram that accompanies an explanation (always produced, never words alone)."""
     return await build_diagram(
@@ -56,4 +58,5 @@ async def explain_diagram(
         session_id=session_id,
         prompt_name="diagram_explain",
         user=_user_message(topic, note),
+        track_slug=track,
     )

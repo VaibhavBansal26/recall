@@ -84,3 +84,49 @@ class SourceNote(BaseModel):
 
 class SourceNotes(BaseModel):
     notes: list[SourceNote] = Field(default_factory=list)
+
+
+class WalkthroughStep(BaseModel):
+    caption: str = Field(description="One short sentence saying what happens in this step")
+    pointers: dict[str, int] = Field(
+        default_factory=dict,
+        description='Pointer name to array index, e.g. {"left": 0, "right": 5}',
+    )
+    highlight: list[int] = Field(default_factory=list, description="Indices to emphasise")
+    array: list[str] | None = Field(
+        default=None, description="The array after this step, only if its values changed"
+    )
+
+
+class WalkthroughDraft(BaseModel):
+    applicable: bool = Field(
+        description="False unless the idea is a step-by-step procedure over an array or string"
+    )
+    array: list[str] = Field(default_factory=list, description="The starting array, as strings")
+    steps: list[WalkthroughStep] = Field(default_factory=list)
+
+
+class BeatCheck(BaseModel):
+    present: bool
+    evidence: str = Field(
+        default="",
+        description="A short VERBATIM excerpt of the transcript showing it; empty if absent",
+    )
+
+
+class TeachBackScore(BaseModel):
+    """The model's judgement of a spoken explanation (counting is done in code)."""
+
+    what: BeatCheck = Field(description="Says what the thing is")
+    how: BeatCheck = Field(description="Says how it works, in steps or mechanism")
+    why: BeatCheck = Field(description="Says why it works that way or why it matters")
+    impact: BeatCheck = Field(description="Says what difference it makes in practice")
+    clarity: int = Field(ge=0, le=100, description="How clear and easy to follow, 0 to 100")
+    clarity_reason: str = Field(description="One short sentence behind the clarity score")
+    well_done: str = Field(description="ONE thing done well, one gentle sentence")
+    to_fix: str = Field(description="ONE thing to fix, one gentle sentence")
+    suggestions: list[str] = Field(description="2 or 3 concrete, specific suggestions")
+    weak_sentence: str = Field(description="One weak sentence copied EXACTLY from the transcript")
+    rewrite: str = Field(
+        description="That sentence rewritten more clearly, using only the learner's ideas"
+    )

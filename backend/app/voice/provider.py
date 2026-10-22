@@ -8,6 +8,8 @@ class SttEvent:
     text: str
     final: bool
     confidence: float | None = None
+    # Word timings for a final transcript: [{"w": "hello", "start": 0.4, "end": 0.7}] (seconds).
+    words: list[dict[str, float | str]] | None = None
 
 
 SttCallback = Callable[[SttEvent], Awaitable[None]]

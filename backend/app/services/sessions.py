@@ -1,5 +1,6 @@
 import uuid
 from dataclasses import asdict
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,8 +38,11 @@ async def add_utterance(
     speaker: Speaker,
     text: str,
     confidence: float | None = None,
+    words: list[dict[str, Any]] | None = None,
 ) -> Utterance:
-    utterance = Utterance(session_id=session_id, speaker=speaker, text=text, confidence=confidence)
+    utterance = Utterance(
+        session_id=session_id, speaker=speaker, text=text, confidence=confidence, words=words
+    )
     db.add(utterance)
     await db.commit()
     return utterance

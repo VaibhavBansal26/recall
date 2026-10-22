@@ -92,6 +92,7 @@ def test_an_ambiguous_question_falls_back_to_the_fast_model() -> None:
     assert len(llm.users) == 1
 
 
-def test_modes_without_a_node_yet_fall_back_to_capture() -> None:
+def test_the_llm_router_can_start_teach_back() -> None:
     llm = ScriptedLLM(RouteDecision(mode=Mode.teach_back))
-    assert asyncio.run(route_turn(llm, "is this right?", Mode.capture)) == Route(Mode.capture)
+    route = asyncio.run(route_turn(llm, "is this right?", Mode.capture))
+    assert route == Route(Mode.teach_back, command="start")

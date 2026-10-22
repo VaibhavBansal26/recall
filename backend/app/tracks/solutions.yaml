@@ -1,0 +1,24 @@
+slug: solutions
+name: Solution Discussions
+description: "Talking through approaches to a specific question: the problem, what was tried, the tradeoffs, and the final choice."
+endpointing:
+  silence_ms: 700
+  capture_silence_ms: 1500
+teach_back_ideas:
+  - Walk me through how you would solve it, and why
+guidance:
+  capture: |
+    Capture a solution discussion as separate atomic notes whose titles start with a label:
+    "Problem: ..." restates the question in one or two sentences; "Approach: ..." is one approach the
+    learner tried or considered, with its idea and its cost; "Tradeoff: ..." says how two approaches
+    compare; "Decision: ..." is the approach the learner chose and why. Use only what the learner said.
+    If a part was never said (no decision yet, say), do not make one up.
+  explain: |
+    Lay out the approaches side by side, then the tradeoffs, then which one fits when.
+  quiz: |
+    Ask what the problem was, which approaches were considered, and which one was chosen and why.
+  review: |
+    Prefer questions about the tradeoff between approaches or the reason for the decision.
+  links: |
+    Link each Approach to its Problem with appears_in. Link competing Approaches with contrasts. Link the
+    Decision to the chosen Approach with related.

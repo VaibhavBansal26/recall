@@ -22,6 +22,7 @@ from app.db.models import (
     Track,
 )
 from app.llm.client import LLMClient
+from app.tracks import guidance_for
 
 log = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ async def generate_items(
     """Ask the model for practice prompts drawn only from the note, and store them."""
     drafts = await llm.complete_structured(
         "deep",
-        system=load_prompt("review_items").text,
+        system=load_prompt("review_items").text + guidance_for(note.track.slug, "review"),
         user=f"NOTE TITLE: {note.title}\nNOTE BODY:\n{note.body_md}",
         schema=ReviewDrafts,
         session_id=session_id,

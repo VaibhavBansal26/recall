@@ -9,6 +9,7 @@ from app.agent.schemas import LinkProposals
 from app.config import Settings
 from app.db.models import LinkKind, Note, NoteLink, NoteOrigin, Track
 from app.llm.client import LLMClient
+from app.tracks import guidance_for
 
 log = logging.getLogger(__name__)
 
@@ -104,7 +105,7 @@ async def propose_links(
     listing = "\n".join(f"[{i}] {c.title}: {c.body_md}" for i, c in enumerate(candidates, 1))
     proposals = await llm.complete_structured(
         "deep",
-        system=load_prompt("links").text,
+        system=load_prompt("links").text + guidance_for(note.track.slug, "links"),
         user=f"NEW:\n{note.title}: {note.body_md}\n\nCANDIDATES:\n{listing}",
         schema=LinkProposals,
         session_id=session_id,

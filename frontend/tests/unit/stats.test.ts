@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { layoutCurve, nearestPoint, pct, shortDate, type CurvePoint } from "@/lib/stats";
+import { layoutCurve, layoutTrend, nearestPoint, pct, shortDate, type CurvePoint } from "@/lib/stats";
 
 const day = (n: number, reviews = 0, recalled = 0): CurvePoint => ({
   date: `2030-06-${String(n).padStart(2, "0")}`,
@@ -54,5 +54,36 @@ describe("layoutCurve", () => {
     const hit = nearestPoint(g, g.points[2].x + 3);
     expect(hit?.index).toBe(3);
     expect(nearestPoint(layoutCurve([day(1)], 640, 220), 100)).toBeNull();
+  });
+});
+
+describe("layoutTrend", () => {
+  const series = [
+    { date: "2026-10-01", value: 40 },
+    { date: "2026-10-02", value: 60 },
+    { date: "2026-10-03", value: 80 },
+  ];
+
+  it("puts higher values higher up and spaces points evenly", () => {
+    const g = layoutTrend(series, 300, 90);
+    expect(g.points[2].y).toBeLessThan(g.points[0].y);
+    expect(g.points[1].x - g.points[0].x).toBeCloseTo(g.points[2].x - g.points[1].x);
+    expect(g.line.startsWith("M")).toBe(true);
+  });
+
+  it("keeps a flat or single-point series inside the box", () => {
+    for (const s of [[series[0]], [series[0], { ...series[0], date: "2026-10-02" }]]) {
+      const g = layoutTrend(s, 300, 90);
+      for (const p of g.points) {
+        expect(p.y).toBeGreaterThanOrEqual(0);
+        expect(p.y).toBeLessThanOrEqual(90);
+      }
+    }
+  });
+
+  it("uses a fixed domain when given", () => {
+    const g = layoutTrend(series, 300, 90, undefined, [0, 100]);
+    expect(g.min).toBe(0);
+    expect(g.max).toBe(100);
   });
 });

@@ -1,0 +1,33 @@
+slug: dsa
+name: Data Structures & Algorithms
+description: Data structures, algorithms and problem-solving patterns, with complexity and step-by-step walkthroughs.
+endpointing:
+  silence_ms: 700
+  capture_silence_ms: 1400
+walkthrough_diagrams: true
+teach_back_ideas:
+  - Explain the two pointers pattern
+  - Explain how binary search narrows the range
+  - Explain why a hash map makes lookups fast
+guidance:
+  capture: |
+    Write pattern notes. Put the pattern or structure in the title, for example "Two pointers: ..." or
+    "Hash map: ...". Each note says when to use it and how it works in one or two sentences. If the
+    learner stated a time or space complexity, keep it in the body exactly as they said it. Never
+    add or correct a complexity yourself.
+  explain: |
+    Say when to use it, then how it works on a tiny concrete example, one step at a time, then its time
+    and space complexity and what it trades off.
+  quiz: |
+    Prefer questions about when to apply a pattern, what the next step of an algorithm is, and the
+    complexity, when the note states it.
+  review: |
+    If the note states a time or space complexity, include a cloze on it. Otherwise ask when to use the
+    pattern.
+  links: |
+    A data structure that an algorithm needs first is a prerequisite. Different approaches to the same
+    problem contrast. A technique used inside a bigger algorithm appears_in it.
+  diagram: |
+    If the idea is a step-by-step procedure over an array or string, show the steps.
+  teach_back: |
+    Good explanations say when to use the technique, walk a tiny example, then give the complexity.

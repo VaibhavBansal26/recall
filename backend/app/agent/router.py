@@ -52,6 +52,16 @@ _EXPLAIN = _rx(
     r"what is|what'?s|what are|how does|how do|how is|why does|why do|why is)\s+(.+?)[.?!]?\s*$"
 )
 
+_TEACH_BACK_START = _rx(
+    r"\b(?:teach[- ]?back|teach it back|practi[sc]e explaining|explain it back)\b"
+    r"(?:\s+(?:on|about|of|for)\s+(.+?))?[.?!]?\s*$"
+)
+_TEACH_BACK_LET_ME = _rx(r"\blet me (?:explain|teach(?: you)?)\s+(.+?)[.?!]?\s*$")
+_TEACH_BACK_DONE = _rx(
+    r"^\W*(?:ok(?:ay)?[, ]+)?(?:i'?m|i am|that'?s|that is)\s+(?:done|all|it|finished)\b|"
+    r"^\W*(?:done|finished|score me|that'?s it|that'?s all)\W*$"
+)
+_TEACH_BACK_CANCEL = _rx(r"^\W*(?:cancel|never ?mind|forget it|stop)\b")
 _BRIEF = _rx(r"\b(daily|morning) brief(ing)?\b|\bmy brief\b|\bstart (the |my )?brief\b")
 _INGEST_START = _rx(
     r"\b(what did you (file|add)|what'?s new|any new (material|sources?|notes)|"
@@ -85,10 +95,12 @@ _READ_COMMANDS = [
 _DEICTIC = {"this", "that", "it", "these", "those", "everything", "all", "what i said"}
 
 
-def _clean_topic(topic: str | None) -> str | None:
-    """Drop "this"/"that" (not a subject) and the trailing "work" of "how does X work"."""
+def _clean_topic(topic: str | None, *, strip_work: bool = True) -> str | None:
+    """Drop "this"/"that" (not a subject) and, for "how does X work", the trailing "work"."""
     if topic is None or topic.strip().lower() in _DEICTIC:
         return None
+    if not strip_work:
+        return topic.strip() or None
     return re.sub(r"\s+works?$", "", topic.strip(), flags=re.IGNORECASE) or None
 
 
@@ -99,6 +111,13 @@ def route_by_rules(text: str, current: Mode) -> Route | None:
             if pattern.search(text) and len(text.split()) <= 8:
                 return Route(Mode.recall_quiz, command=command)
         return Route(Mode.recall_quiz, command="answer")  # sticky: this is an answer
+
+    if current == Mode.teach_back:
+        if _TEACH_BACK_CANCEL.search(text) and len(text.split()) <= 4:
+            return Route(Mode.teach_back, command="cancel")
+        if _TEACH_BACK_DONE.search(text) and len(text.split()) <= 8:
+            return Route(Mode.teach_back, command="done")
+        return Route(Mode.teach_back, command="segment")  # sticky: this is part of the explanation
 
     if current == Mode.ingest_review:
         for command, pattern in _INGEST_COMMANDS:
@@ -111,6 +130,14 @@ def route_by_rules(text: str, current: Mode) -> Route | None:
             if pattern.search(text) and len(text.split()) <= 6:
                 return Route(Mode.read_back, command=command)
 
+    if m := _TEACH_BACK_LET_ME.search(text):
+        return Route(
+            Mode.teach_back, topic=_clean_topic(m.group(1), strip_work=False), command="start"
+        )
+    if m := _TEACH_BACK_START.search(text):
+        return Route(
+            Mode.teach_back, topic=_clean_topic(m.group(1), strip_work=False), command="start"
+        )
     if _BRIEF.search(text):
         return Route(Mode.recall_quiz, command="brief")
     if _INGEST_START.search(text):
@@ -146,7 +173,6 @@ async def route_turn(
         schema=RouteDecision,
         session_id=session_id,
     )
-    # Teach-back has no node yet; treat it as the nearest working mode.
-    if decision.mode == Mode.teach_back:
-        return Route(Mode.capture)
+    if decision.mode == Mode.teach_back:  # a start request needs a topic to listen for
+        return Route(Mode.teach_back, topic=decision.topic, command="start")
     return Route(decision.mode, topic=decision.topic)
