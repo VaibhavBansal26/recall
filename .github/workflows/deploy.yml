@@ -1,0 +1,46 @@
+# Deploys to the DigitalOcean Droplet on every push to main (or by hand from the Actions tab).
+# It SSHes in, pulls the new code and rebuilds. Setup: see DEPLOY.md, "Automatic deploys".
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One deploy at a time; a newer push waits instead of racing the running one.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Prepare SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Pull, rebuild, check health
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER_NAME: ${{ secrets.DEPLOY_USER }}
+          SITE: ${{ secrets.DEPLOY_SITE }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=yes "$USER_NAME@$HOST" \
+            "cd ~/recall && git fetch origin main && git reset --hard origin/main && make prod-up"
+          for i in $(seq 1 30); do
+            if curl -fsS "https://$SITE/healthz"; then echo; exit 0; fi
+            sleep 5
+          done
+          echo "healthz did not come up after the deploy" >&2
+          exit 1

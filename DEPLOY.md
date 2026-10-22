@@ -94,3 +94,29 @@ Also enable your provider's snapshot or backup feature if it has one.
 - Your API keys live only in `.env` on the VM. Never commit it (it is git-ignored).
 - Notes and voice transcripts are stored on, and sent through, a third-party VM and the AI providers
   you enable. Choose accordingly.
+
+## Automatic deploys (GitHub Actions)
+
+Every push to `main` runs `.github/workflows/deploy.yml`: it SSHes to the VM, runs
+`git reset --hard origin/main` and `make prod-up`, then waits for `/healthz`. The `.env` on the VM is
+untracked, so deploys never touch your keys. Database migrations run when the backend restarts.
+
+One-time setup:
+1. On your laptop make a key used only for deploys: `ssh-keygen -t ed25519 -f recall_deploy -N ""`.
+2. On the VM append `recall_deploy.pub` to `~/.ssh/authorized_keys` of the user that owns `~/recall`.
+3. Get the VM's host key: `ssh-keyscan -t ed25519 VM_IP` (check it matches what you see on first SSH).
+4. In GitHub: repo **Settings, Secrets and variables, Actions**, add these repository secrets:
+
+| Secret | Value |
+|---|---|
+| `DEPLOY_HOST` | the VM IP |
+| `DEPLOY_USER` | the SSH user (e.g. `root`) |
+| `DEPLOY_SSH_KEY` | contents of `recall_deploy` (the private key) |
+| `DEPLOY_KNOWN_HOSTS` | the `ssh-keyscan` line |
+| `DEPLOY_SITE` | `recall.vbrecall.org` |
+
+5. Delete the local `recall_deploy` files once the secret is saved. Run the workflow by hand from the
+   **Actions** tab to test it.
+
+A failed deploy leaves the previous containers running. This does not run the tests first; add a test job
+that the deploy `needs` once you want that gate.
