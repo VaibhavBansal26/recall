@@ -159,6 +159,16 @@ export function SessionView({
     await mic.current?.stop();
   }
 
+  // "Stop the session" by voice: the server says goodbye, we close the microphone.
+  const voiceEnds = s.voiceEnds;
+  const lastVoiceEnd = useRef(0);
+  useEffect(() => {
+    if (voiceEnds > lastVoiceEnd.current) {
+      lastVoiceEnd.current = voiceEnds;
+      void disableMic();
+    }
+  });
+
   function releasePushToTalk() {
     if (micMode !== "ptt") return;
     if (mic.current) mic.current.streaming = false;

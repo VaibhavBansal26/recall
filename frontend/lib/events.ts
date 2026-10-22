@@ -141,6 +141,7 @@ export type ServerEvent =
     }
   | { type: "confusion"; trigger: string; note_id: string | null }
   | { type: "mode"; mode: string }
+  | { type: "session_end" }
   | { type: "diagram"; items: DiagramItem[] }
   | { type: "links"; items: LinkItem[] }
   | {
@@ -268,6 +269,8 @@ export interface ViewState {
   explanation: Explanation | null;
   readBack: ReadBackView | null;
   teachBack: TeachBackView | null;
+  /** Counts spoken "end the session" commands; the screen turns the mic off when it changes. */
+  voiceEnds: number;
   /** The note the assistant is currently talking about (read-back, quiz); the diagram follows it. */
   focusNoteId: string | null;
   /** Set when confusion was detected, so the UI can say the note was marked fragile. */
@@ -293,6 +296,7 @@ export const initialViewState: ViewState = {
   explanation: null,
   readBack: null,
   teachBack: null,
+  voiceEnds: 0,
   focusNoteId: null,
   confusion: null,
   error: null,
@@ -376,6 +380,8 @@ export function reduceEvent(state: ViewState, event: ServerEvent): ViewState {
         mode: event.mode,
         readBack: event.mode === "read_back" ? state.readBack : null,
       };
+    case "session_end":
+      return { ...state, voiceEnds: state.voiceEnds + 1 };
     case "quiz": {
       const view: QuizView = {
         phase: event.phase,

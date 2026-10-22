@@ -253,3 +253,11 @@ describe("teach-back events", () => {
     expect(reduceEvent(scored, { ...base, phase: "cancelled" }).teachBack).toBeNull();
   });
 });
+
+describe("ending the session by voice", () => {
+  it("counts each spoken end so the screen can close the mic", () => {
+    const once = reduceEvent(initialViewState, { type: "session_end" });
+    expect(once.voiceEnds).toBe(1);
+    expect(reduceEvent(once, { type: "session_end" }).voiceEnds).toBe(2);
+  });
+});

@@ -62,6 +62,15 @@ _TEACH_BACK_DONE = _rx(
     r"^\W*(?:done|finished|score me|that'?s it|that'?s all)\W*$"
 )
 _TEACH_BACK_CANCEL = _rx(r"^\W*(?:cancel|never ?mind|forget it|stop)\b")
+# Ending the whole session by voice. Anchored to the entire utterance so "stop words are removed"
+# is still a note; inside a quiz, read-back or teach-back the mode's own "stop" wins first.
+_END_SESSION = _rx(
+    r"^\W*(?:(?:ok(?:ay)?|alright|please|hey|right|so)[, ]+)*"
+    r"(?:stop|end|finish|close|quit|exit)(?:\s+(?:the|this|my))?"
+    r"(?:\s+(?:session|listening|recording|mic|microphone|conversation|app))?\W*$|"
+    r"^\W*(?:good ?bye|bye(?: bye)?|that'?s all(?: for (?:today|now))?|we'?re done|"
+    r"i'?m done for (?:today|now)|see you(?: later| soon)?|talk to you later)\W*$"
+)
 _BRIEF = _rx(r"\b(daily|morning) brief(ing)?\b|\bmy brief\b|\bstart (the |my )?brief\b")
 _INGEST_START = _rx(
     r"\b(what did you (file|add)|what'?s new|any new (material|sources?|notes)|"
@@ -130,6 +139,8 @@ def route_by_rules(text: str, current: Mode) -> Route | None:
             if pattern.search(text) and len(text.split()) <= 6:
                 return Route(Mode.read_back, command=command)
 
+    if _END_SESSION.search(text):
+        return Route(Mode.chitchat, command="end_session")
     if m := _TEACH_BACK_LET_ME.search(text):
         return Route(
             Mode.teach_back, topic=_clean_topic(m.group(1), strip_work=False), command="start"

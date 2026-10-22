@@ -115,11 +115,19 @@ class ElevenLabsStt(SttSession):
         try:
             async for raw in self._ws:
                 msg = json.loads(raw)
-                if msg.get("message_type") in ERRORS:
+                kind = msg.get("message_type")
+                if kind in ERRORS:
                     log.warning("elevenlabs stt: %s", msg)
                     continue
+                if kind not in ("partial_transcript", "committed_transcript_with_timestamps"):
+                    log.info("elevenlabs stt message: %s", kind)
                 for event in events_from_message(msg):
                     await self._on_event(event)
+            log.warning(
+                "elevenlabs stt socket closed (code=%s reason=%s)",
+                self._ws.close_code,
+                self._ws.close_reason,
+            )
         except Exception:
             log.exception("elevenlabs stt receive loop ended")
 

@@ -217,6 +217,12 @@ class TeachBackEvent(BaseModel):
     rewrite: TeachBackRewrite | None = None
 
 
+class SessionEndEvent(BaseModel):
+    """The learner ended the session by voice: the client turns the microphone off."""
+
+    type: Literal["session_end"] = "session_end"
+
+
 class ModeEvent(BaseModel):
     type: Literal["mode"] = "mode"
     mode: str
@@ -264,6 +270,7 @@ ServerEvent = (
     | ConfusionEvent
     | TeachBackEvent
     | ModeEvent
+    | SessionEndEvent
     | DiagramEvent
     | LinksEvent
     | LatencyEvent

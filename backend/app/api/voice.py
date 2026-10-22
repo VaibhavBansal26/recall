@@ -60,6 +60,7 @@ from app.voice.events import (
     NotesEvent,
     QuizActionEvent,
     QuizStartEvent,
+    SessionEndEvent,
     SessionEvent,
     SpeechStartEvent,
     StartEvent,
@@ -271,6 +272,10 @@ class _Connection:
             await self._handle_ingest_review(route, latency)
         elif route.mode == Mode.explain:
             await self._handle_explain(route.topic or state.user_text, latency, simple=False)
+        elif route.mode == Mode.chitchat and route.command == "end_session":
+            await self._set_mode(Mode.capture)
+            await self.out.send(SessionEndEvent())  # the client closes the mic
+            self._start_reply(_once("Okay, ending the session. Talk to you soon."), latency)
         elif route.mode == Mode.chitchat:
             await self._set_mode(Mode.capture)
             self._start_reply(
