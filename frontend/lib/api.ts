@@ -18,6 +18,7 @@ export function toNoteCard(n: NoteOut): NoteCard {
     bodyMd: n.body_md,
     origin: n.origin,
     confirmed: n.confirmed,
+    fragile: n.fragile ?? false,
     change: null,
   };
 }
@@ -82,4 +83,30 @@ export async function setLinkConfirmed(linkId: string, confirmed: boolean): Prom
 export async function deleteLink(linkId: string): Promise<void> {
   const res = await apiFetch(`/api/links/${linkId}`, { method: "DELETE" });
   if (!res.ok) throw new Error(`DELETE link failed: ${res.status}`);
+}
+
+export type DueOut = components["schemas"]["DueOut"];
+
+export async function getDue(track?: string): Promise<DueOut> {
+  const q = track ? `?track=${encodeURIComponent(track)}&limit=1` : "?limit=1";
+  return json(await apiFetch(`/api/reviews/due${q}`), "GET due");
+}
+
+/** Save something the assistant said (an explanation) as an unconfirmed assistant note. */
+export async function saveAssistantNote(track: string, title: string, body: string): Promise<NoteOut> {
+  const res = await apiFetch("/api/notes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ track, title, body_md: body, origin: "assistant" }),
+  });
+  return json(res, "POST note");
+}
+
+export async function setNoteConfirmed(noteId: string, confirmed: boolean): Promise<NoteOut> {
+  const res = await apiFetch(`/api/notes/${noteId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirmed }),
+  });
+  return json(res, "PATCH note");
 }

@@ -3,18 +3,30 @@ import base64
 import contextlib
 import logging
 import uuid
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from fastapi import APIRouter, WebSocket
 from pydantic import BaseModel, ValidationError
+from sqlalchemy import update
 
+from app.agent.confusion import ConfusionTracker
 from app.agent.deps import AgentDeps
 from app.agent.graph import stream_capture
+from app.agent.nodes import explain as explain_node
+from app.agent.nodes import read_back as read_back_node
 from app.agent.nodes.capture import ack_stream
-from app.agent.state import AgentState
+from app.agent.nodes.chitchat import chitchat_stream
+from app.agent.nodes.recall_quiz import QuizSession, QuizStep
+from app.agent.router import Mode, Route, route_turn
+from app.agent.state import AgentState, DiagramItem
 from app.auth import COOKIE_NAME
 from app.config import get_settings
-from app.db.models import Speaker, Utterance
+from app.db.models import LearningSession, Speaker, Utterance
+from app.services import confusion as confusion_svc
+from app.services import diagrams as diagram_svc
+from app.services import notes as notes_svc
+from app.services import retrieval
 from app.services import sessions as svc
 from app.tracks import Endpointing
 from app.voice.barge_in import BargeInDetector
@@ -22,14 +34,19 @@ from app.voice.events import (
     AssistantDeltaEvent,
     AssistantDoneEvent,
     AudioEvent,
+    ConfusionEvent,
     DiagramEvent,
     EndSpeechEvent,
     ErrorEvent,
+    ExplainEvent,
     InterruptedEvent,
     InterruptEvent,
     LatencyEvent,
     LinksEvent,
+    ModeEvent,
     NotesEvent,
+    QuizActionEvent,
+    QuizStartEvent,
     SessionEvent,
     SpeechStartEvent,
     StartEvent,
@@ -47,6 +64,8 @@ log = logging.getLogger(__name__)
 
 WINDOW_SIZE = 6  # earlier user utterances passed to capture as context
 
+AfterSpeech = Callable[[], Awaitable[None]]
+
 
 class _Outbox:
     """Serialises sends: the receive loop and the reply task both write to the socket."""
@@ -60,6 +79,10 @@ class _Outbox:
             await self._ws.send_text(event.model_dump_json())
 
 
+async def _once(text: str) -> AsyncIterator[str]:
+    yield text
+
+
 class _Connection:
     def __init__(
         self, out: _Outbox, deps: AgentDeps, graph: Any, voice: VoiceProvider | None
@@ -69,6 +92,7 @@ class _Connection:
         self.graph = graph
         self.voice = voice
         self.detector = BargeInDetector()
+        self.confusion = ConfusionTracker()
         self.session_id: uuid.UUID | None = None
         self.track: str = deps.settings.default_track
         self.stt: SttSession | None = None
@@ -77,6 +101,15 @@ class _Connection:
         self.capture_tasks: set[asyncio.Task[None]] = set()
         self.capture_lock = asyncio.Lock()
         self._partial: Utterance | None = None
+        # conversation mode and per-mode state
+        self.mode: Mode = Mode.capture
+        self.quiz: QuizSession | None = None
+        self.readback: read_back_node.ReadBackSession | None = None
+        self.speed: float = 1.0
+        self.active_note_id: uuid.UUID | None = None  # last note we explained/read/quizzed
+        self.last_topic: str | None = None
+        self._silence_task: asyncio.Task[None] | None = None
+        self._bg: set[asyncio.Task[Any]] = set()
 
     # ---- lifecycle ----
 
@@ -86,6 +119,7 @@ class _Connection:
             return
         await self.close_stt()
         await self.interrupt(announce=False)
+        self._cancel_silence()
         async with self.deps.sessionmaker() as db:
             if event.session_id is not None:
                 session = await svc.get_session(db, event.session_id)
@@ -101,6 +135,9 @@ class _Connection:
             self.session_id, self.track = session.id, session.track.slug
             endpointing = Endpointing.model_validate(session.track.config.get("endpointing", {}))
         self.window = []
+        self.confusion = ConfusionTracker()
+        self.mode, self.quiz, self.readback, self.speed = Mode.capture, None, None, 1.0
+        self.active_note_id = self.last_topic = None
         if self.voice.audio_input:
             try:
                 # Capture mode: wait longer before deciding the user has finished a thought.
@@ -119,9 +156,10 @@ class _Connection:
         )
 
     async def close(self) -> None:
+        self._cancel_silence()
         await self.close_stt()
         await self.interrupt(announce=False)
-        await asyncio.gather(*self.capture_tasks, return_exceptions=True)
+        await asyncio.gather(*self.capture_tasks, *self._bg, return_exceptions=True)
 
     async def close_stt(self) -> None:
         if self.stt is not None:
@@ -155,11 +193,14 @@ class _Connection:
             return
         await self.user_turn(event.text, confidence=event.confidence)
 
+    # ---- the turn: route to a mode ----
+
     async def user_turn(self, text: str, confidence: float | None = None) -> None:
         if self.session_id is None:
             await self.out.send(ErrorEvent(message="Send a start event first"))
             return
         latency = TurnLatency()
+        self._cancel_silence()
         # A new user turn while the assistant is talking is a barge-in.
         await self.interrupt(announce=True)
         async with self.deps.sessionmaker() as db:
@@ -172,11 +213,311 @@ class _Connection:
             user_text=text,
             transcript_window=self.window[-WINDOW_SIZE:],
         )
+        previous = self.window[-1] if self.window else None
         self.window.append(text)
-        self.reply_task = asyncio.create_task(self._reply(state, latency))
-        capture = asyncio.create_task(self._capture(state))
-        self.capture_tasks.add(capture)
-        capture.add_done_callback(self.capture_tasks.discard)
+
+        trigger = self.confusion.check(text)
+        route = await route_turn(self.deps.llm, text, self.mode, self.session_id)
+
+        if self.mode == Mode.recall_quiz and trigger and trigger.startswith("phrase"):
+            # In a quiz, "I don't get it" climbs the hint ladder instead of leaving the quiz.
+            await self._record_confusion(trigger)
+            route = Route(Mode.recall_quiz, command="hint")
+        elif trigger and route.mode in (Mode.capture, Mode.explain, Mode.chitchat):
+            await self._confusion_turn(trigger, previous or text, latency)
+            return
+
+        await self._dispatch(route, state, latency)
+
+    async def _dispatch(self, route: Route, state: AgentState, latency: TurnLatency) -> None:
+        if route.mode == Mode.recall_quiz:
+            await self._handle_quiz(route, latency)
+        elif route.mode == Mode.read_back:
+            await self._handle_read_back(route, latency)
+        elif route.mode == Mode.explain:
+            await self._handle_explain(route.topic or state.user_text, latency, simple=False)
+        elif route.mode == Mode.chitchat:
+            await self._set_mode(Mode.capture)
+            self._start_reply(
+                chitchat_stream(self.deps, state.session_id, state.user_text), latency
+            )
+        else:  # capture
+            if self.mode != Mode.capture:
+                await self._set_mode(Mode.capture)
+            self._start_reply(ack_stream(self.deps, state), latency)
+            capture = asyncio.create_task(self._capture(state))
+            self.capture_tasks.add(capture)
+            capture.add_done_callback(self.capture_tasks.discard)
+
+    async def _set_mode(self, mode: Mode) -> None:
+        if mode == self.mode:
+            return
+        self.mode = mode
+        if mode != Mode.recall_quiz:
+            self.quiz = None
+        if mode != Mode.read_back:
+            self.readback = None
+            self.speed = 1.0
+        await self._persist_mode(mode)
+
+    async def _persist_mode(self, mode: Mode) -> None:
+        if self.session_id is not None:
+            async with self.deps.sessionmaker() as db:
+                await db.execute(
+                    update(LearningSession)
+                    .where(LearningSession.id == self.session_id)
+                    .values(mode=mode.value)
+                )
+                await db.commit()
+        await self.out.send(ModeEvent(mode=mode.value))
+
+    # ---- explain, with the "I don't get it" simplification ----
+
+    async def _handle_explain(
+        self, topic: str, latency: TurnLatency, *, simple: bool, trigger: str | None = None
+    ) -> None:
+        assert self.session_id is not None
+        await self._set_mode(Mode.capture)
+        session_id = self.session_id
+        note = await explain_node.find_related_note(self.deps, self.track, topic)
+        if note is not None:
+            self.active_note_id = note.id
+        self.last_topic = topic
+
+        # The diagram is drawn alongside the spoken explanation, never words alone.
+        diagram_task = asyncio.create_task(
+            explain_node.explain_diagram(self.deps, session_id=session_id, topic=topic, note=note)
+        )
+        self._bg.add(diagram_task)
+        diagram_task.add_done_callback(self._bg.discard)
+
+        spoken: list[str] = []
+
+        async def tokens() -> AsyncIterator[str]:
+            async for token in explain_node.explain_stream(
+                self.deps, session_id=session_id, topic=topic, simple=simple, note=note
+            ):
+                spoken.append(token)
+                yield token
+
+        async def after() -> None:
+            diagram: DiagramItem | None = None
+            try:
+                kind, source = await diagram_task
+                diagram = DiagramItem(
+                    note_id=note.id if note else session_id, kind=kind.value, source=source
+                )
+            except Exception:
+                log.exception("explain diagram failed")
+            await self.out.send(
+                ExplainEvent(
+                    explain_id=uuid.uuid4(),
+                    topic=topic,
+                    simple=simple,
+                    text="".join(spoken).strip(),
+                    diagram=diagram,
+                    note_id=note.id if note else None,
+                )
+            )
+            if not simple:
+                self._arm_silence_watch()
+
+        self._start_reply(tokens(), latency, after=after)
+
+    async def _record_confusion(self, trigger: str) -> None:
+        assert self.session_id is not None
+        async with self.deps.sessionmaker() as db:
+            await confusion_svc.log_confusion(
+                db, session_id=self.session_id, note_id=self.active_note_id, trigger=trigger
+            )
+        await self.out.send(ConfusionEvent(trigger=trigger, note_id=self.active_note_id))
+
+    async def _confusion_turn(
+        self, trigger: str, fallback_topic: str, latency: TurnLatency
+    ) -> None:
+        """Log it, mark the note fragile, and explain again in simplified form (rule 4)."""
+        await self._record_confusion(trigger)
+        topic = self.last_topic
+        if topic is None and self.active_note_id is not None:
+            async with self.deps.sessionmaker() as db:
+                note = await notes_svc.get_note(db, self.active_note_id)
+            topic = note.title if note else None
+        await self._handle_explain(topic or fallback_topic, latency, simple=True, trigger=trigger)
+
+    def _arm_silence_watch(self) -> None:
+        wait = get_settings().confusion_silence_s
+        if wait <= 0:
+            return
+        self._cancel_silence()
+        self._silence_task = asyncio.create_task(self._silence_watch(wait))
+
+    def _cancel_silence(self) -> None:
+        if self._silence_task is not None and not self._silence_task.done():
+            self._silence_task.cancel()
+        self._silence_task = None
+
+    async def _silence_watch(self, wait: float) -> None:
+        """A long silence after an explanation is a sign it did not land."""
+        await asyncio.sleep(wait)
+        if self.session_id is None or self._speaking:
+            return
+        try:
+            await self._confusion_turn(
+                "silence after explanation", self.last_topic or "that", TurnLatency()
+            )
+        except Exception:
+            log.exception("silence follow-up failed")
+
+    # ---- recall_quiz ----
+
+    async def start_quiz(
+        self, *, note_id: uuid.UUID | None = None, topic: str | None = None
+    ) -> None:
+        if self.session_id is None:
+            await self.out.send(ErrorEvent(message="Send a start event first"))
+            return
+        await self.interrupt(announce=True)
+        self._cancel_silence()
+        latency = TurnLatency()
+        note_ids: list[uuid.UUID] | None = None
+        if topic:
+            async with self.deps.sessionmaker() as db:
+                found = await retrieval.hybrid_search(
+                    db, self.deps.embedder, track_slug=self.track, query=topic, limit=6
+                )
+            if not found:
+                self._start_reply(_once(f"I couldn't find any notes about {topic}."), latency)
+                return
+            note_ids = [n.id for n in found]
+        self.quiz = QuizSession(self.deps, self.session_id, self.track)
+        self.mode = Mode.recall_quiz
+        await self._persist_mode(self.mode)
+        step = await self.quiz.start(note_id=note_id, note_ids=note_ids)
+        await self._play_quiz_step(step, latency)
+
+    async def _handle_quiz(self, route: Route, latency: TurnLatency) -> None:
+        if self.quiz is None:  # a "quiz me" request from speech
+            await self.start_quiz(topic=route.topic)
+            return
+        command = route.command or "answer"
+        text = self.window[-1] if self.window else ""
+        if command == "hint" or command == "forgot":
+            step = await self.quiz.hint()
+        elif command == "skip":
+            step = await self.quiz.skip()
+        elif command == "end":
+            step = await self.quiz.end()
+        else:
+            step = await self.quiz.answer(text)
+        await self._play_quiz_step(step, latency)
+
+    async def quiz_action(self, action: str) -> None:
+        if self.quiz is None or self.session_id is None:
+            return
+        await self.interrupt(announce=True)
+        latency = TurnLatency()
+        step = {
+            "hint": self.quiz.hint,
+            "forgot": self.quiz.hint,
+            "skip": self.quiz.skip,
+            "end": self.quiz.end,
+        }[action]
+        await self._play_quiz_step(await step(), latency)
+
+    async def _play_quiz_step(self, step: QuizStep, latency: TurnLatency) -> None:
+        for event in step.events:
+            await self.out.send(event)
+            if event.note_id is not None:
+                self.active_note_id = event.note_id
+        if step.diagram_note_id is not None:
+            self._spawn(self._send_note_diagram(step.diagram_note_id))
+        if step.ended:
+            await self._set_mode(Mode.capture)
+        self._start_reply(_once(step.spoken), latency)
+
+    # ---- read_back ----
+
+    async def _handle_read_back(self, route: Route, latency: TurnLatency) -> None:
+        assert self.session_id is not None
+        session_id = self.session_id
+        rb = self.readback
+        command = route.command or "start"
+
+        if rb is None or command == "start":
+            rb = await read_back_node.start(self.deps, self.track, route.topic)
+            if rb is None:
+                about = f" about {route.topic}" if route.topic else ""
+                self._start_reply(_once(f"I don't have any notes{about} yet."), latency)
+                return
+            self.readback = rb
+            await self._set_mode(Mode.read_back)
+            self.readback = rb  # _set_mode clears it when leaving read_back
+            self.speed = rb.speed
+            step = await read_back_node.read_current(self.deps, rb, session_id)
+        elif command in ("next", "skip"):
+            step = await read_back_node.advance(self.deps, rb, session_id)
+        elif command in ("slower", "faster"):
+            read_back_node.change_speed(rb, command)
+            self.speed = rb.speed
+            step = await read_back_node.read_current(self.deps, rb, session_id)
+        elif command == "repeat":
+            step = await read_back_node.read_current(self.deps, rb, session_id)
+        else:  # stop
+            step = read_back_node.stop(rb)
+
+        spoken = step.spoken
+        for event in step.events:
+            await self.out.send(event)
+        if step.note_id is not None:
+            self.active_note_id = step.note_id
+            self._spawn(self._send_note_diagram(step.note_id))
+
+        if step.finished:
+            if step.question_item is not None:
+                # Finish by asking one question: hand over to the quiz for that item.
+                self.quiz = QuizSession(self.deps, session_id, self.track)
+                self.mode = Mode.recall_quiz
+                quiz_step = await self.quiz.start(items=[step.question_item])
+                for quiz_event in quiz_step.events:
+                    await self.out.send(quiz_event)
+                spoken = f"{spoken} {quiz_step.spoken}"
+                await self._persist_mode(self.mode)
+                self.readback = None
+                self.speed = 1.0
+            else:
+                await self._set_mode(Mode.capture)
+        self._start_reply(_once(spoken), latency)
+
+    # ---- diagrams for notes ----
+
+    async def _send_note_diagram(self, note_id: uuid.UUID) -> None:
+        """Show the note's diagram, drawing one first if it has none yet."""
+        async with self.deps.sessionmaker() as db:
+            diagram = await diagram_svc.get_diagram(db, note_id)
+            if diagram is None:
+                note = await notes_svc.get_note(db, note_id)
+                if note is None:
+                    return
+                kind, source = await diagram_svc.build_diagram(
+                    self.deps.llm,
+                    title=note.title,
+                    body_md=note.body_md,
+                    session_id=self.session_id,
+                )
+                diagram = await diagram_svc.save_diagram(db, note_id, kind, source)
+            item = DiagramItem(note_id=note_id, kind=diagram.kind.value, source=diagram.source)
+        await self.out.send(DiagramEvent(items=[item]))
+
+    def _spawn(self, coro: Awaitable[Any]) -> None:
+        async def run() -> None:
+            try:
+                await coro
+            except Exception:
+                log.exception("background task failed")
+
+        task = asyncio.create_task(run())
+        self._bg.add(task)
+        task.add_done_callback(self._bg.discard)
 
     # ---- barge-in ----
 
@@ -203,12 +544,26 @@ class _Connection:
                     )
                 )
 
-    # ---- turns ----
+    # ---- speaking ----
 
-    async def _reply(self, state: AgentState, latency: TurnLatency) -> None:
+    def _start_reply(
+        self,
+        tokens: AsyncIterator[str],
+        latency: TurnLatency,
+        after: AfterSpeech | None = None,
+    ) -> None:
+        self.reply_task = asyncio.create_task(self._reply(tokens, latency, after))
+
+    async def _reply(
+        self,
+        tokens: AsyncIterator[str],
+        latency: TurnLatency,
+        after: AfterSpeech | None,
+    ) -> None:
         assert self.voice is not None and self.session_id is not None
         spoken: list[str] = []
         chunker = SentenceChunker()
+        speed = self.speed if self.speed != 1.0 else None
 
         async def speak(sentence: str) -> None:
             assert self.voice is not None
@@ -217,12 +572,12 @@ class _Connection:
                 return
             spoken.append(text)
             await self.out.send(AssistantDeltaEvent(text=text))
-            async for chunk in self.voice.synthesize(text):
+            async for chunk in self.voice.synthesize(text, speed):
                 latency.mark_first_audio()
                 await self.out.send(AudioEvent(data=base64.b64encode(chunk).decode()))
 
         try:
-            async for token in ack_stream(self.deps, state):
+            async for token in tokens:
                 latency.mark_first_token()
                 for sentence in chunker.feed(token):
                     await speak(sentence)
@@ -249,6 +604,8 @@ class _Connection:
                     stt_to_first_audio_ms=latency.stt_to_first_audio_ms(),
                 )
             )
+            if after is not None:
+                await after()
         except asyncio.CancelledError:
             # Keep what was actually said, marked as interrupted.
             if spoken:
@@ -273,14 +630,15 @@ class _Connection:
         # Serialised so two quick turns cannot both create the same note.
         async with self.capture_lock:
             try:
-                async for node, update in stream_capture(self.graph, state):
-                    if node == "capture" and update.captured:
-                        await self.out.send(NotesEvent(items=update.captured))
+                async for node, update_state in stream_capture(self.graph, state):
+                    if node == "capture" and update_state.captured:
+                        self.active_note_id = update_state.captured[0].note_id
+                        await self.out.send(NotesEvent(items=update_state.captured))
                     elif node == "enrich":
-                        if update.diagrams:
-                            await self.out.send(DiagramEvent(items=update.diagrams))
-                        if update.links:
-                            await self.out.send(LinksEvent(items=update.links))
+                        if update_state.diagrams:
+                            await self.out.send(DiagramEvent(items=update_state.diagrams))
+                        if update_state.links:
+                            await self.out.send(LinksEvent(items=update_state.links))
             except Exception:
                 log.exception("capture failed")
                 with contextlib.suppress(Exception):
@@ -327,5 +685,9 @@ async def voice_ws(ws: WebSocket) -> None:
                 await conn.speech_start()
             elif isinstance(event, EndSpeechEvent):
                 await conn.end_speech()
+            elif isinstance(event, QuizStartEvent):
+                await conn.start_quiz(note_id=event.note_id)
+            elif isinstance(event, QuizActionEvent):
+                await conn.quiz_action(event.action)
     finally:
         await conn.close()

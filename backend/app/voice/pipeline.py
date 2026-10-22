@@ -30,8 +30,8 @@ class PipelineVoiceProvider(VoiceProvider):
     async def open_stt(self, *, silence_ms: int, on_event: SttCallback) -> SttSession:
         return await DeepgramStt.connect(self._settings, silence_ms=silence_ms, on_event=on_event)
 
-    def synthesize(self, sentence: str) -> AsyncIterator[bytes]:
-        return self._tts.synthesize(sentence)
+    def synthesize(self, sentence: str, speed: float | None = None) -> AsyncIterator[bytes]:
+        return self._tts.synthesize(sentence, speed)
 
     async def aclose(self) -> None:
         await self._tts.aclose()

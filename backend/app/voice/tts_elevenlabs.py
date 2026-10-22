@@ -18,11 +18,15 @@ class ElevenLabsTts:
             timeout=httpx.Timeout(30.0),
         )
 
-    async def synthesize(self, sentence: str) -> AsyncIterator[bytes]:
+    async def synthesize(self, sentence: str, speed: float | None = None) -> AsyncIterator[bytes]:
         body = {
             "text": sentence,
             "model_id": self._model,
-            "voice_settings": {"stability": 0.55, "similarity_boost": 0.75, "speed": self._speed},
+            "voice_settings": {
+                "stability": 0.55,
+                "similarity_boost": 0.75,
+                "speed": speed or self._speed,
+            },
         }
         async with self._http.stream(
             "POST",

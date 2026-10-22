@@ -8,7 +8,9 @@ export type ClientEvent =
   | { type: "text"; text: string }
   | { type: "interrupt" }
   | { type: "speech_start" }
-  | { type: "end_speech" };
+  | { type: "end_speech" }
+  | { type: "quiz"; note_id?: string | null }
+  | { type: "quiz_action"; action: "hint" | "forgot" | "skip" | "end" };
 
 export interface CaptureItem {
   event_id: string;
@@ -42,11 +44,60 @@ export interface LinkItem {
   confirmed: boolean;
 }
 
+export interface QuizSummary {
+  total: number;
+  unaided: number;
+  hinted: number;
+  revealed: number;
+  fragile: number;
+}
+
+export type QuizPhase = "asking" | "hint" | "graded" | "ended" | "empty";
+
 export type ServerEvent =
   | { type: "session"; session_id: string; track: string; audio_input: boolean }
   | { type: "transcript"; text: string; final: boolean }
   | { type: "utterance"; id: string; speaker: Speaker; text: string; interrupted?: boolean }
   | { type: "notes"; items: CaptureItem[] }
+  | {
+      type: "quiz";
+      phase: QuizPhase;
+      item_id: string | null;
+      note_id: string | null;
+      note_title: string | null;
+      prompt: string | null;
+      tier: number;
+      hint: string | null;
+      answer: string | null;
+      grade: string | null;
+      fragile: boolean;
+      next_due: string | null;
+      position: number;
+      total: number;
+      summary: QuizSummary | null;
+    }
+  | {
+      type: "explain";
+      explain_id: string;
+      topic: string;
+      simple: boolean;
+      text: string;
+      diagram: DiagramItem | null;
+      note_id: string | null;
+    }
+  | {
+      type: "read_back";
+      index: number;
+      total: number;
+      note_id: string | null;
+      title: string | null;
+      body_md: string | null;
+      why: string | null;
+      speed: number;
+      finished: boolean;
+    }
+  | { type: "confusion"; trigger: string; note_id: string | null }
+  | { type: "mode"; mode: string }
   | { type: "diagram"; items: DiagramItem[] }
   | { type: "links"; items: LinkItem[] }
   | {
@@ -75,6 +126,7 @@ export interface NoteCard {
   bodyMd: string;
   origin: NoteOrigin;
   confirmed: boolean;
+  fragile: boolean;
   change: {
     eventId: string;
     action: "created" | "merged";
@@ -85,6 +137,49 @@ export interface NoteCard {
 }
 
 export type Phase = "idle" | "thinking" | "speaking";
+
+/** The question currently on screen in a quiz, and where it is on the hint ladder. */
+export interface QuizView {
+  phase: QuizPhase;
+  itemId: string | null;
+  noteId: string | null;
+  noteTitle: string | null;
+  prompt: string | null;
+  tier: number;
+  hint: string | null;
+  answer: string | null;
+  grade: string | null;
+  fragile: boolean;
+  nextDue: string | null;
+  position: number;
+  total: number;
+  summary: QuizSummary | null;
+}
+
+export interface QuizResult {
+  itemId: string;
+  prompt: string;
+  tier: number;
+  grade: string;
+  fragile: boolean;
+}
+
+export interface Explanation {
+  id: string;
+  topic: string;
+  simple: boolean;
+  text: string;
+  diagram: DiagramItem | null;
+  noteId: string | null;
+  saved: boolean;
+}
+
+export interface ReadBackView {
+  index: number;
+  total: number;
+  title: string | null;
+  speed: number;
+}
 
 export interface Latency {
   sttToFirstTokenMs: number | null;
@@ -108,6 +203,15 @@ export interface ViewState {
   /** Links seen this session; assistant ones are unconfirmed until accepted. */
   links: LinkItem[];
   latency: Latency | null;
+  mode: string;
+  quiz: QuizView | null;
+  quizResults: QuizResult[];
+  explanation: Explanation | null;
+  readBack: ReadBackView | null;
+  /** The note the assistant is currently talking about (read-back, quiz); the diagram follows it. */
+  focusNoteId: string | null;
+  /** Set when confusion was detected, so the UI can say the note was marked fragile. */
+  confusion: string | null;
   error: string | null;
 }
 
@@ -123,6 +227,13 @@ export const initialViewState: ViewState = {
   diagrams: {},
   links: [],
   latency: null,
+  mode: "capture",
+  quiz: null,
+  quizResults: [],
+  explanation: null,
+  readBack: null,
+  focusNoteId: null,
+  confusion: null,
   error: null,
 };
 
@@ -135,6 +246,7 @@ export function applyCaptureItems(notes: NoteCard[], items: CaptureItem[]): Note
       bodyMd: item.body_md,
       origin: item.origin,
       confirmed: item.confirmed,
+      fragile: false,
       change: {
         eventId: item.event_id,
         action: item.action,
@@ -175,6 +287,7 @@ export function reduceEvent(state: ViewState, event: ServerEvent): ViewState {
         notes: state.notes,
         diagrams: state.diagrams,
         links: state.links,
+        quizResults: [],
         sessionId: event.session_id,
         track: event.track,
         audioInput: event.audio_input,
@@ -189,12 +302,95 @@ export function reduceEvent(state: ViewState, event: ServerEvent): ViewState {
         error: null,
         utterances: [...state.utterances, stored],
         partial: speaker === "user" ? "" : state.partial,
+        confusion: speaker === "user" ? null : state.confusion,
         assistantDraft: speaker === "assistant" ? "" : state.assistantDraft,
         phase: speaker === "user" ? "thinking" : state.phase,
       };
     }
     case "notes":
       return { ...state, notes: applyCaptureItems(state.notes, event.items) };
+    case "mode":
+      return {
+        ...state,
+        mode: event.mode,
+        readBack: event.mode === "read_back" ? state.readBack : null,
+      };
+    case "quiz": {
+      const view: QuizView = {
+        phase: event.phase,
+        itemId: event.item_id,
+        noteId: event.note_id,
+        noteTitle: event.note_title,
+        prompt: event.prompt,
+        tier: event.tier,
+        hint: event.hint,
+        answer: event.answer,
+        grade: event.grade,
+        fragile: event.fragile,
+        nextDue: event.next_due,
+        position: event.position,
+        total: event.total,
+        summary: event.summary,
+      };
+      const focusNoteId = event.note_id ?? state.focusNoteId;
+      if (event.phase === "asking") {
+        return {
+          ...state,
+          focusNoteId,
+          quiz: view,
+          quizResults: event.position === 1 ? [] : state.quizResults,
+        };
+      }
+      if (event.phase === "graded") {
+        const result: QuizResult = {
+          itemId: event.item_id ?? "",
+          prompt: event.prompt ?? "",
+          tier: event.tier,
+          grade: event.grade ?? "",
+          fragile: event.fragile,
+        };
+        return {
+          ...state,
+          focusNoteId,
+          quiz: view,
+          quizResults: [...state.quizResults, result],
+          notes: event.fragile
+            ? state.notes.map((n) => (n.noteId === event.note_id ? { ...n, fragile: true } : n))
+            : state.notes,
+        };
+      }
+      if (event.phase === "ended") {
+        return { ...state, quiz: { ...(state.quiz ?? view), ...view, phase: "ended" } };
+      }
+      return { ...state, focusNoteId, quiz: view };
+    }
+    case "explain":
+      return {
+        ...state,
+        explanation: {
+          id: event.explain_id,
+          topic: event.topic,
+          simple: event.simple,
+          text: event.text,
+          diagram: event.diagram,
+          noteId: event.note_id,
+          saved: false,
+        },
+      };
+    case "read_back":
+      return {
+        ...state,
+        focusNoteId: event.note_id ?? state.focusNoteId,
+        readBack: event.finished && event.note_id === null
+          ? null
+          : { index: event.index, total: event.total, title: event.title, speed: event.speed },
+      };
+    case "confusion":
+      return {
+        ...state,
+        confusion: event.trigger,
+        notes: state.notes.map((n) => (n.noteId === event.note_id ? { ...n, fragile: true } : n)),
+      };
     case "diagram":
       return {
         ...state,

@@ -20,6 +20,7 @@ def to_note_out(note: Note) -> NoteOut:
         body_md=note.body_md,
         origin=note.origin,
         confirmed=note.confirmed,
+        fragile=note.fragile,
         created_at=note.created_at,
         updated_at=note.updated_at,
     )
@@ -48,7 +49,7 @@ async def create_note(body: NoteCreate, db: Db, request: Request) -> NoteOut:
         track=track,
         title=body.title,
         body_md=body.body_md,
-        origin=NoteOrigin.user,
+        origin=NoteOrigin(body.origin),
         embedding=embedding,
         record_event=False,
     )
@@ -78,6 +79,7 @@ async def patch_note(note_id: uuid.UUID, body: NotePatch, db: Db, request: Reque
         title=body.title,
         body_md=body.body_md,
         confirmed=body.confirmed,
+        fragile=body.fragile,
         embedding=embedding,
     )
     return to_note_out(note)

@@ -200,6 +200,7 @@ describe("mergeNotes", () => {
     bodyMd: title,
     origin: "user",
     confirmed: true,
+    fragile: false,
     change,
   });
   const change = { eventId: "e1", action: "created" as const, similarity: null, beforeTitle: null, beforeBodyMd: null };

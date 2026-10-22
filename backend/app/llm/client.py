@@ -78,5 +78,6 @@ class LLMClient(ABC):
         system: str,
         user: str,
         session_id: uuid.UUID | None = None,
+        purpose: str = "ack",
     ) -> AsyncIterator[str]:
-        """Yield text tokens as they arrive."""
+        """Yield text tokens as they arrive. `purpose` only steers the fake provider."""

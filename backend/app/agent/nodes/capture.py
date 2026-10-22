@@ -21,6 +21,7 @@ def ack_stream(deps: AgentDeps, state: AgentState) -> AsyncIterator[str]:
         system=load_prompt("capture_ack").text,
         user=state.user_text,
         session_id=state.session_id,
+        purpose="ack",
     )
 
 

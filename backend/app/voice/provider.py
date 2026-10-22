@@ -38,8 +38,8 @@ class VoiceProvider(ABC):
         """Start streaming transcription. `silence_ms` is the endpointing threshold."""
 
     @abstractmethod
-    def synthesize(self, sentence: str) -> AsyncIterator[bytes]:
-        """Stream PCM s16le 16 kHz mono audio for one sentence."""
+    def synthesize(self, sentence: str, speed: float | None = None) -> AsyncIterator[bytes]:
+        """Stream PCM s16le 16 kHz mono audio for one sentence. `speed` overrides the default."""
 
     async def aclose(self) -> None:  # noqa: B027
         """Release network clients."""

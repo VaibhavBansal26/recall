@@ -6,6 +6,7 @@ from app.agent.deps import AgentDeps
 from app.agent.state import AgentState, DiagramItem, LinkItem
 from app.db.models import NoteLink
 from app.services import notes as notes_svc
+from app.services import reviews as reviews_svc
 from app.services.diagrams import build_diagram, save_diagram
 from app.services.links import propose_links
 
@@ -48,4 +49,19 @@ async def enrich_node(deps: AgentDeps, state: AgentState) -> AgentState:
                 links += [link_item(link) for link in created]
             except Exception:
                 log.exception("link proposal failed for note %s", note.id)
+            try:
+                # Practice prompts, capped per session so a long talk cannot flood the queue.
+                if not await reviews_svc.items_for_note(db, note.id) and (
+                    await reviews_svc.count_session_items(db, state.session_id)
+                    < deps.settings.max_review_items_per_session
+                ):
+                    await reviews_svc.generate_items(
+                        db,
+                        deps.llm,
+                        note,
+                        max_items=deps.settings.max_review_items_per_note,
+                        session_id=state.session_id,
+                    )
+            except Exception:
+                log.exception("review item generation failed for note %s", note.id)
     return state.model_copy(update={"diagrams": diagrams, "links": links})

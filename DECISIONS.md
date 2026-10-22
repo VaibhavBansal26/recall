@@ -2,6 +2,45 @@
 
 Newest first. Anything that differs from `CLAUDE.md` goes here with the reason.
 
+## Phase 3: recall engine
+
+- **FSRS via the `fsrs` package (v6), fuzzing off** so schedules are reproducible. The card state is
+  stored as `review_items.fsrs_state` and `due_at` mirrors it for the index.
+- **Grade mapping (section 6.3):** correct unaided = Good, or Easy when answered within 6 s of the
+  question (that time includes the question being spoken, so it is generous; tune in
+  `hint_ladder.EASY_WITHIN_MS`); tier 1 = Hard; tier 2 or 3 = Again.
+- **Fragile rule.** Tier 3 on two consecutive reviews of the same item sets `fragile` on the item and its
+  note and caps the next interval at one day (even if FSRS would schedule it later). Two consecutive
+  unaided correct answers clear it. Confusion also sets `notes.fragile` (new column); the map shows
+  the note as fragile, and `GET /api/graph` returns real `strength` (mean FSRS retrievability) now.
+- **Skipping a question does not grade it**, so it stays due.
+- **Router is rules first.** Obvious commands ("quiz me", "read me my notes on X", "explain X",
+  "how does X work") match by regex with no LLM call, so they add no latency. Only a question that
+  matches no rule calls the fast model's structured router. Everything else is capture. Teach-back and
+  ingest review have no node yet and fall back to capture. Inside a quiz or read-back, speech is
+  sticky: it is an answer or a pace command unless it matches a command word.
+- **Spoken-turn nodes (explain, read_back, quiz, chitchat) run in the connection, not as LangGraph
+  nodes,** because they stream speech. LangGraph still runs the capture then enrich pipeline.
+- **One fast-model call grades an answer and writes the next hint** (`QuizTurn`), so a wrong answer
+  costs one round trip, not two. After a tier 3 reveal the next utterance ends the question without an
+  LLM call. The real latency of this has not been measured: no keys.
+- **Review items are generated in `enrich`**: up to 2 per note (a cloze and a question), only if the
+  note has none, and capped at 20 per session. Prompts that would ask something the note does not say
+  are the model's risk; the prompt forbids it and cloze prompts are validated to have exactly one blank.
+- **Confusion detection:** phrases ("I don't get it", "what do you mean", "wait" at the start, "dumb it
+  down", ...), the same question twice (word-overlap 0.8), and silence after an explanation
+  (`CONFUSION_SILENCE_S`, default 25 s). In a quiz a confusion phrase climbs the hint ladder instead.
+- **Explanations are not filed as notes.** The assistant's explanation comes with a diagram and a
+  "Save as note" button that creates an `origin='assistant'`, unconfirmed note (section 2 rule 6).
+- **Read-back** orders notes by prerequisite links (cycle-safe), says one line on why each matters,
+  and ends by asking a stored question, which hands over to the quiz. Pace commands change the TTS
+  speed (0.7 to 1.2).
+- **Hybrid retrieval** = vector similarity and full-text rank fused with reciprocal rank fusion.
+- **Not built / not verified:** the real LLM prompts have not run against a real model (grading
+  leniency, hint quality, extraction quality). The fake LLM grades by word overlap. Daily brief and
+  stats are Phase 5. The `/review` screen reuses the session view (voice-driven) rather than a
+  separate implementation.
+
 ## Phase 2.5: hosted backend and installable PWA
 
 The user asked for one app on laptop, iPhone and iPad, synced. This overrides spec rule 7 (bind to

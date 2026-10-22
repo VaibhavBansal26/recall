@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { DiagramView } from "@/components/DiagramView";
 import { MemoryMap } from "@/components/MemoryMap";
@@ -128,7 +129,7 @@ function Legend() {
           <span>strong</span>
         </div>
         <p className="mt-1 text-xs opacity-60">
-          Grey notes have no review history yet. Colours fill in once you start quizzes.
+          Grey notes have no review history yet. Colours fill in as you answer quiz questions.
         </p>
       </div>
       <p>
@@ -152,6 +153,7 @@ function NoteDetails({
   edges: LinkOut[];
   onChanged: () => Promise<void>;
 }) {
+  const router = useRouter();
   const [diagram, setDiagram] = useState<DiagramItem | null | undefined>(undefined);
   const [links, setLinks] = useState<LinkOut[]>([]);
 
@@ -175,12 +177,11 @@ function NoteDetails({
       <section aria-label="Note">
         <h2 className="font-semibold">{node.title}</h2>
         <p className="mt-1 whitespace-pre-wrap opacity-90">{node.body_md}</p>
-        {node.fragile && <p className="mt-1 text-red-600">⚠ Fragile</p>}
+        {node.fragile && <p className="mt-1 text-red-600">⚠ Fragile: you struggled with this one</p>}
         <button
           type="button"
-          disabled
-          title="Quizzes arrive in Phase 3"
-          className="mt-3 rounded-lg border border-neutral-300 px-3 py-1.5 opacity-50 dark:border-neutral-700"
+          onClick={() => router.push(`/review?note=${node.id}`)}
+          className="mt-3 min-h-11 rounded-lg bg-indigo-600 px-4 py-2 text-white"
         >
           Quiz me on this
         </button>

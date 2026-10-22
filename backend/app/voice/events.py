@@ -1,6 +1,7 @@
 """WebSocket contract for /ws/voice. Mirrored by frontend/lib/events.ts."""
 
 import uuid
+from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter
@@ -38,7 +39,29 @@ class EndSpeechEvent(BaseModel):
     type: Literal["end_speech"] = "end_speech"
 
 
-ClientMessage = StartEvent | TextEvent | InterruptEvent | SpeechStartEvent | EndSpeechEvent
+class QuizStartEvent(BaseModel):
+    """Begin a quiz: of what is due, or practice on one note (the map's "Quiz me on this")."""
+
+    type: Literal["quiz"] = "quiz"
+    note_id: uuid.UUID | None = None
+
+
+class QuizActionEvent(BaseModel):
+    """Button equivalents of the spoken commands."""
+
+    type: Literal["quiz_action"] = "quiz_action"
+    action: Literal["hint", "forgot", "skip", "end"]
+
+
+ClientMessage = (
+    StartEvent
+    | TextEvent
+    | InterruptEvent
+    | SpeechStartEvent
+    | EndSpeechEvent
+    | QuizStartEvent
+    | QuizActionEvent
+)
 ClientEvent = Annotated[ClientMessage, Field(discriminator="type")]
 client_event_adapter: TypeAdapter[ClientMessage] = TypeAdapter(ClientEvent)
 
@@ -87,6 +110,71 @@ class LinksEvent(BaseModel):
     items: list[LinkItem]
 
 
+class QuizSummary(BaseModel):
+    total: int
+    unaided: int
+    hinted: int
+    revealed: int
+    fragile: int
+
+
+class QuizStateEvent(BaseModel):
+    """Display payload for recall_quiz: the question, the hint ladder tier, the grade."""
+
+    type: Literal["quiz"] = "quiz"
+    phase: Literal["asking", "hint", "graded", "ended", "empty"]
+    item_id: uuid.UUID | None = None
+    note_id: uuid.UUID | None = None
+    note_title: str | None = None
+    prompt: str | None = None
+    tier: int = 0
+    hint: str | None = None
+    answer: str | None = None  # only once revealed (tier 3) or graded
+    grade: str | None = None
+    fragile: bool = False
+    next_due: datetime | None = None
+    position: int = 0
+    total: int = 0
+    summary: QuizSummary | None = None
+
+
+class ExplainEvent(BaseModel):
+    """An explanation (what/how/why/impact) with its diagram, optionally saved as a note."""
+
+    type: Literal["explain"] = "explain"
+    explain_id: uuid.UUID
+    topic: str
+    simple: bool = False
+    text: str
+    diagram: DiagramItem | None = None
+    note_id: uuid.UUID | None = None  # the learner's note it was grounded on, if any
+
+
+class ReadBackEvent(BaseModel):
+    type: Literal["read_back"] = "read_back"
+    index: int
+    total: int
+    note_id: uuid.UUID | None = None
+    title: str | None = None
+    body_md: str | None = None
+    why: str | None = None
+    speed: float = 1.0
+    finished: bool = False
+
+
+class ConfusionEvent(BaseModel):
+    """Confusion was detected: the note was marked fragile and is being re-explained simply."""
+
+    type: Literal["confusion"] = "confusion"
+    trigger: str
+    note_id: uuid.UUID | None = None
+
+
+class ModeEvent(BaseModel):
+    type: Literal["mode"] = "mode"
+    mode: str
+
+
 class LatencyEvent(BaseModel):
     type: Literal["latency"] = "latency"
     stt_to_first_token_ms: float | None = None
@@ -123,6 +211,11 @@ ServerEvent = (
     | TranscriptEvent
     | UtteranceEvent
     | NotesEvent
+    | QuizStateEvent
+    | ExplainEvent
+    | ReadBackEvent
+    | ConfusionEvent
+    | ModeEvent
     | DiagramEvent
     | LinksEvent
     | LatencyEvent

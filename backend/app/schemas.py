@@ -1,9 +1,10 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.db.models import DiagramKind, LinkKind, NoteOrigin, Speaker
+from app.db.models import DiagramKind, LinkKind, NoteOrigin, PromptKind, Speaker
 
 
 class HealthOut(BaseModel):
@@ -49,6 +50,8 @@ class SessionDetail(SessionOut):
 
 class NoteCreate(BaseModel):
     track: str = "ai-eng"
+    # "assistant" saves something the assistant said (e.g. an explanation); it stays unconfirmed.
+    origin: Literal["user", "assistant"] = "user"
     title: str = Field(min_length=1)
     body_md: str = Field(min_length=1)
 
@@ -57,6 +60,7 @@ class NotePatch(BaseModel):
     title: str | None = Field(default=None, min_length=1)
     body_md: str | None = Field(default=None, min_length=1)
     confirmed: bool | None = None
+    fragile: bool | None = None
 
 
 class NoteOut(BaseModel):
@@ -66,6 +70,7 @@ class NoteOut(BaseModel):
     body_md: str
     origin: NoteOrigin
     confirmed: bool
+    fragile: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -127,3 +132,35 @@ class GraphNode(BaseModel):
 class GraphOut(BaseModel):
     nodes: list[GraphNode]
     edges: list[LinkOut]
+
+
+class ReviewItemOut(BaseModel):
+    id: uuid.UUID
+    note_id: uuid.UUID
+    note_title: str
+    kind: PromptKind
+    prompt: str
+    due_at: datetime
+    last_reviewed_at: datetime | None = None
+    fragile: bool = False
+    retrievability: float | None = None
+
+
+class DueOut(BaseModel):
+    total_due: int
+    next_due_at: datetime | None = None
+    items: list[ReviewItemOut]
+
+
+class GradeIn(BaseModel):
+    grade: Literal["again", "hard", "good", "easy"]
+    hint_tier_used: int = Field(default=0, ge=0, le=3)
+    latency_ms: int | None = Field(default=None, ge=0)
+
+
+class GradeOut(BaseModel):
+    item: ReviewItemOut
+    grade: str
+    became_fragile: bool
+    cleared_fragile: bool
+    next_due_at: datetime

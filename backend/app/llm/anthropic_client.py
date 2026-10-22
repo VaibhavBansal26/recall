@@ -89,6 +89,7 @@ class AnthropicLLM(LLMClient):
         system: str,
         user: str,
         session_id: uuid.UUID | None = None,
+        purpose: str = "ack",
     ) -> AsyncIterator[str]:
         model = self._models[kind]
         started = time.perf_counter()

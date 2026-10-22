@@ -19,6 +19,7 @@ interface SessionStore extends ViewState {
   setNotes: (notes: NoteCard[]) => void;
   syncNotes: (fetched: NoteCard[]) => void;
   setDiagram: (diagram: DiagramItem) => void;
+  markSaved: () => void;
   undone: (eventId: string) => void;
 }
 
@@ -31,5 +32,9 @@ export const useSessionStore = create<SessionStore>((set) => ({
   syncNotes: (fetched) => set((state) => ({ notes: mergeNotes(state.notes, fetched) })),
   setDiagram: (diagram) =>
     set((state) => ({ diagrams: { ...state.diagrams, [diagram.note_id]: diagram } })),
+  markSaved: () =>
+    set((state) => ({
+      explanation: state.explanation ? { ...state.explanation, saved: true } : null,
+    })),
   undone: (eventId) => set((state) => ({ notes: applyUndo(state.notes, eventId) })),
 }));

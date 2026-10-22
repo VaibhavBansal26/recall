@@ -15,6 +15,7 @@ os.environ["DATABASE_URL"] = TEST_DB_URL
 os.environ["VOICE_PROVIDER"] = "fake"
 os.environ["LLM_PROVIDER"] = "fake"
 os.environ["EMBEDDING_PROVIDER"] = "fake"
+os.environ["CONFUSION_SILENCE_S"] = "0"  # silence trigger is tested explicitly
 os.environ["FAKE_DELAY_S"] = "0.25"  # long enough for the barge-in test to interrupt mid-reply
 
 from alembic import command  # noqa: E402

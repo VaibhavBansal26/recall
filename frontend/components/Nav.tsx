@@ -2,16 +2,32 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { getDue } from "@/lib/api";
+import { useRefreshOnFocus } from "@/lib/useRefreshOnFocus";
 import { useAuth } from "./AuthGate";
 
 const LINKS = [
   { href: "/session", label: "Session" },
+  { href: "/review", label: "Review" },
   { href: "/map", label: "Memory map" },
 ];
 
 export function Nav() {
   const path = usePathname();
   const { authRequired, logout } = useAuth();
+  const [due, setDue] = useState<number | null>(null);
+  const refresh = useCallback(
+    () =>
+      getDue()
+        .then((d) => setDue(d.total_due))
+        .catch(() => undefined),
+    [],
+  );
+  useEffect(() => {
+    if (path !== "/login") void refresh();
+  }, [path, refresh]);
+  useRefreshOnFocus(refresh, 60_000);
   if (path === "/login") return null;
   return (
     <nav aria-label="Main" className="border-b border-neutral-200 dark:border-neutral-800">
@@ -24,6 +40,14 @@ export function Nav() {
               className="py-1 aria-[current=page]:font-semibold aria-[current=page]:underline"
             >
               {l.label}
+              {l.href === "/review" && due ? (
+                <span
+                  data-testid="due-badge"
+                  className="ml-1 rounded-full bg-indigo-600 px-1.5 py-0.5 text-xs font-normal text-white"
+                >
+                  {due}
+                </span>
+              ) : null}
             </Link>
           </li>
         ))}

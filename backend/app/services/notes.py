@@ -123,6 +123,7 @@ async def update_note(
     title: str | None = None,
     body_md: str | None = None,
     confirmed: bool | None = None,
+    fragile: bool | None = None,
     embedding: list[float] | None = None,
 ) -> Note:
     if title is not None:
@@ -131,6 +132,8 @@ async def update_note(
         note.body_md = body_md
     if confirmed is not None:
         note.confirmed = confirmed
+    if fragile is not None:
+        note.fragile = fragile
     if embedding is not None:
         note.embedding = embedding
     note.updated_at = datetime.now(UTC)

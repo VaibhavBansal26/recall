@@ -11,7 +11,7 @@ Voice-first learning companion (single user, local-first). The full spec and pha
 | 1 Capture to notes | done (fakes verified; real voice/LLM keys untested) |
 | 2 Diagrams and memory map | done (verified with fakes) |
 | 2.5 Hosted backend + installable PWA | built; tested locally, not yet on a real VM or iOS device |
-| 3 Recall engine | not started |
+| 3 Recall engine | done (verified with fakes only) |
 
 ## Use it on laptop, iPhone and iPad
 
@@ -87,3 +87,16 @@ The Debug panel shows speech end to first audio for each turn; the target is und
 3. Open **Memory map**. Notes are nodes, the unconfirmed link is a dashed amber edge. Click a
    node for its note, diagram and links, then **Confirm** (edge turns solid) or **Remove**.
    Grey nodes have no review history yet; strength colours and the red fragile marker arrive with Phase 3.
+
+## Phase 3 demo (works with no keys)
+
+1. On /session capture two or three ideas ("Reranking reorders retrieved chunks by relevance before
+   generation. Chunk overlap keeps context across boundaries."). Each note gets a cloze and a question.
+2. **Quiz me** (or say it) asks what is due. Answer wrongly or press **I forgot** to climb the ladder:
+   nudge, partial, then the answer with an explanation and a diagram. The grade follows how much help
+   you needed. Doing a full reveal twice in a row marks the note fragile and brings it back within a day.
+3. Type `explain reranking`: you get a short spoken explanation, a diagram and **Save as note**.
+   Then type `I don't get it`: the note is marked fragile and explained again in simpler words.
+4. Type `read me my notes on reranking`; use next, repeat, slower, faster, stop.
+5. On **Memory map**, notes you have reviewed take a red to green strength colour, fragile ones get a red
+   border, and **Quiz me on this** practises that one note.

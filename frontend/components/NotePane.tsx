@@ -9,6 +9,7 @@ interface Props {
   selectedId: string | null;
   onSelect: (noteId: string) => void;
   onUndo: (eventId: string) => Promise<void>;
+  onConfirm?: (noteId: string) => Promise<void>;
 }
 
 function NoteItem({
@@ -17,12 +18,14 @@ function NoteItem({
   selected,
   onSelect,
   onUndo,
+  onConfirm,
 }: {
   note: NoteCard;
   links: LinkItem[];
   selected: boolean;
   onSelect: () => void;
   onUndo: Props["onUndo"];
+  onConfirm?: Props["onConfirm"];
 }) {
   const [busy, setBusy] = useState(false);
   const [showBefore, setShowBefore] = useState(false);
@@ -87,8 +90,27 @@ function NoteItem({
           </>
         )}
         {unconfirmed && (
-          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
-            From assistant, unconfirmed
+          <>
+            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
+              From assistant, unconfirmed
+            </span>
+            {onConfirm && (
+              <button
+                type="button"
+                onClick={() => void onConfirm(note.noteId)}
+                className="rounded border border-neutral-300 px-2 py-0.5 dark:border-neutral-700"
+              >
+                Confirm
+              </button>
+            )}
+          </>
+        )}
+        {note.fragile && (
+          <span
+            data-testid="fragile-badge"
+            className="rounded bg-red-100 px-1.5 py-0.5 text-red-900 dark:bg-red-900/40 dark:text-red-200"
+          >
+            ⚠ Fragile
           </span>
         )}
       </div>
@@ -121,7 +143,7 @@ function NoteItem({
   );
 }
 
-export function NotePane({ notes, links, selectedId, onSelect, onUndo }: Props) {
+export function NotePane({ notes, links, selectedId, onSelect, onUndo, onConfirm }: Props) {
   return (
     <section aria-label="Notes" className="flex flex-col gap-3">
       <h2 className="text-sm font-semibold uppercase tracking-wide opacity-60">
@@ -139,6 +161,7 @@ export function NotePane({ notes, links, selectedId, onSelect, onUndo }: Props) 
               selected={n.noteId === selectedId}
               onSelect={() => onSelect(n.noteId)}
               onUndo={onUndo}
+              onConfirm={onConfirm}
             />
           ))}
         </ul>

@@ -15,5 +15,5 @@ class FakeVoiceProvider(VoiceProvider):
     async def open_stt(self, *, silence_ms: int, on_event: SttCallback) -> SttSession:
         raise RuntimeError("FakeVoiceProvider has no speech input; use typed text")
 
-    async def synthesize(self, sentence: str) -> AsyncIterator[bytes]:
+    async def synthesize(self, sentence: str, speed: float | None = None) -> AsyncIterator[bytes]:
         yield SILENCE_100MS

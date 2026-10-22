@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     dedup_similarity: float = 0.88
     max_notes_per_turn: int = 5
 
+    # --- recall ---
+    quiz_batch: int = 5  # questions per quiz session
+    max_review_items_per_note: int = 2
+    max_review_items_per_session: int = 20  # so a long talk does not flood the queue
+    confusion_silence_s: float = 25.0  # silence after an explanation counts as confusion; 0 = off
+
     # --- links ---
     link_similarity: float = 0.35  # candidates for the LLM to judge; it may still say "no link"
     max_links_per_note: int = 3

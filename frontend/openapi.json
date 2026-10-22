@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Recall",
-    "version": "0.3.0"
+    "version": "0.5.0"
   },
   "paths": {
     "/healthz": {
@@ -16,6 +16,80 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HealthOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "summary": "Me",
+        "operationId": "me_api_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "summary": "Login",
+        "operationId": "login_api_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthStatus"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "summary": "Logout",
+        "operationId": "logout_api_auth_logout_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthStatus"
                 }
               }
             }
@@ -626,10 +700,135 @@
           }
         }
       }
+    },
+    "/api/reviews/due": {
+      "get": {
+        "summary": "Due",
+        "description": "What is due now, most overdue first. The answer is never included.",
+        "operationId": "due_api_reviews_due_get",
+        "parameters": [
+          {
+            "name": "track",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Track"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DueOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reviews/{item_id}/grade": {
+      "post": {
+        "summary": "Grade",
+        "operationId": "grade_api_reviews__item_id__grade_post",
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GradeIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GradeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AuthStatus": {
+        "properties": {
+          "auth_required": {
+            "type": "boolean",
+            "title": "Auth Required"
+          },
+          "authenticated": {
+            "type": "boolean",
+            "title": "Authenticated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "auth_required",
+          "authenticated"
+        ],
+        "title": "AuthStatus"
+      },
       "DiagramKind": {
         "type": "string",
         "enum": [
@@ -666,6 +865,110 @@
           "created_at"
         ],
         "title": "DiagramOut"
+      },
+      "DueOut": {
+        "properties": {
+          "total_due": {
+            "type": "integer",
+            "title": "Total Due"
+          },
+          "next_due_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Due At"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewItemOut"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_due",
+          "items"
+        ],
+        "title": "DueOut"
+      },
+      "GradeIn": {
+        "properties": {
+          "grade": {
+            "type": "string",
+            "enum": [
+              "again",
+              "hard",
+              "good",
+              "easy"
+            ],
+            "title": "Grade"
+          },
+          "hint_tier_used": {
+            "type": "integer",
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Hint Tier Used",
+            "default": 0
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "grade"
+        ],
+        "title": "GradeIn"
+      },
+      "GradeOut": {
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/ReviewItemOut"
+          },
+          "grade": {
+            "type": "string",
+            "title": "Grade"
+          },
+          "became_fragile": {
+            "type": "boolean",
+            "title": "Became Fragile"
+          },
+          "cleared_fragile": {
+            "type": "boolean",
+            "title": "Cleared Fragile"
+          },
+          "next_due_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Next Due At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "item",
+          "grade",
+          "became_fragile",
+          "cleared_fragile",
+          "next_due_at"
+        ],
+        "title": "GradeOut"
       },
       "GraphNode": {
         "properties": {
@@ -883,12 +1186,36 @@
         ],
         "title": "LinkPatch"
       },
+      "LoginIn": {
+        "properties": {
+          "passphrase": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Passphrase"
+          }
+        },
+        "type": "object",
+        "required": [
+          "passphrase"
+        ],
+        "title": "LoginIn"
+      },
       "NoteCreate": {
         "properties": {
           "track": {
             "type": "string",
             "title": "Track",
             "default": "ai-eng"
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Origin",
+            "default": "user"
           },
           "title": {
             "type": "string",
@@ -942,6 +1269,11 @@
           "confirmed": {
             "type": "boolean",
             "title": "Confirmed"
+          },
+          "fragile": {
+            "type": "boolean",
+            "title": "Fragile",
+            "default": false
           },
           "created_at": {
             "type": "string",
@@ -1003,10 +1335,99 @@
               }
             ],
             "title": "Confirmed"
+          },
+          "fragile": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fragile"
           }
         },
         "type": "object",
         "title": "NotePatch"
+      },
+      "PromptKind": {
+        "type": "string",
+        "enum": [
+          "cloze",
+          "question",
+          "explain",
+          "teachback"
+        ],
+        "title": "PromptKind"
+      },
+      "ReviewItemOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "note_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Note Id"
+          },
+          "note_title": {
+            "type": "string",
+            "title": "Note Title"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/PromptKind"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
+          "due_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Due At"
+          },
+          "last_reviewed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Reviewed At"
+          },
+          "fragile": {
+            "type": "boolean",
+            "title": "Fragile",
+            "default": false
+          },
+          "retrievability": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrievability"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "note_id",
+          "note_title",
+          "kind",
+          "prompt",
+          "due_at"
+        ],
+        "title": "ReviewItemOut"
       },
       "SessionCreate": {
         "properties": {

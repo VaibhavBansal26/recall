@@ -11,6 +11,8 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Index,
+    Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -44,6 +46,13 @@ class LinkKind(enum.StrEnum):
     example_of = "example_of"  # from_note is an example of to_note
     contrasts = "contrasts"
     appears_in = "appears_in"  # from_note appears in to_note
+
+
+class PromptKind(enum.StrEnum):
+    cloze = "cloze"
+    question = "question"
+    explain = "explain"
+    teachback = "teachback"
 
 
 class DiagramKind(enum.StrEnum):
@@ -135,6 +144,8 @@ class Note(Base):
     body_md: Mapped[str] = mapped_column(Text)
     origin: Mapped[NoteOrigin] = mapped_column(Enum(NoteOrigin, name="note_origin"))
     confirmed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Set when the learner struggled with this note (confusion, or repeated reveals in a quiz).
+    fragile: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     # Plain column for now; FK to `sources` is added with that table in Phase 4.
     source_id: Mapped[uuid.UUID | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(
@@ -212,6 +223,63 @@ class Diagram(Base):
     )
     kind: Mapped[DiagramKind] = mapped_column(Enum(DiagramKind, name="diagram_kind"))
     source: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, server_default=sql_text("now()")
+    )
+
+
+class ReviewItem(Base):
+    __tablename__ = "review_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()")
+    )
+    note_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("notes.id", ondelete="CASCADE"), index=True
+    )
+    prompt_kind: Mapped[PromptKind] = mapped_column(Enum(PromptKind, name="prompt_kind"))
+    prompt: Mapped[str] = mapped_column(Text)
+    answer: Mapped[str] = mapped_column(Text)
+    fsrs_state: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    last_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    fragile: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, server_default=sql_text("now()")
+    )
+
+    note: Mapped[Note] = relationship(lazy="joined")
+
+
+class ReviewLog(Base):
+    __tablename__ = "review_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()")
+    )
+    review_item_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("review_items.id", ondelete="CASCADE"), index=True
+    )
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    grade: Mapped[int] = mapped_column(SmallInteger)  # FSRS rating: 1 Again .. 4 Easy
+    hint_tier_used: Mapped[int] = mapped_column(SmallInteger, default=0)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("sessions.id", ondelete="SET NULL")
+    )
+
+
+class ConfusionEvent(Base):
+    __tablename__ = "confusion_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()")
+    )
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("sessions.id", ondelete="SET NULL")
+    )
+    note_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("notes.id", ondelete="SET NULL"))
+    trigger: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, server_default=sql_text("now()")
     )

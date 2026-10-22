@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.agent.deps import AgentDeps
 from app.agent.graph import build_graph
 from app.api import auth as auth_api
-from app.api import graph, health, links, notes, sessions, voice
+from app.api import graph, health, links, notes, reviews, sessions, voice
 from app.auth import AuthService, LoginLimiter, require_auth
 from app.config import get_settings
 from app.db.session import make_engine, make_sessionmaker
@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="Recall", version="0.4.0", lifespan=lifespan)
+    app = FastAPI(title="Recall", version="0.5.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -71,6 +71,7 @@ def create_app() -> FastAPI:
     app.include_router(notes.router, dependencies=guarded)
     app.include_router(links.router, dependencies=guarded)
     app.include_router(graph.router, dependencies=guarded)
+    app.include_router(reviews.router, dependencies=guarded)
     app.include_router(voice.router)  # authenticates its own WebSocket handshake
     return app
 

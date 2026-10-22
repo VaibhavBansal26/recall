@@ -27,13 +27,15 @@ async def build_diagram(
     title: str,
     body_md: str,
     session_id: uuid.UUID | None = None,
+    prompt_name: str = "diagram",
+    user: str | None = None,
 ) -> tuple[DiagramKind, str]:
     """Generate a diagram, validate it by parsing, retry once with the parser error, then fall back.
 
     Returns ("mermaid", valid source) or ("steps", newline-separated steps).
     """
-    system = load_prompt("diagram").text
-    user = f"TITLE: {title}\nBODY:\n{body_md}"
+    system = load_prompt(prompt_name).text
+    user = user or f"TITLE: {title}\nBODY:\n{body_md}"
     steps: list[str] = []
     error: str | None = None
     previous = ""
