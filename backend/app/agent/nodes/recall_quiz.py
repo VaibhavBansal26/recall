@@ -47,6 +47,8 @@ class QuizSession:
     position: int = 0
     total: int = 0
     results: list[_Result] = field(default_factory=list)
+    outro: str = ""  # spoken after the summary (the brief's "what's due today")
+    brief_id: uuid.UUID | None = None
 
     # ---------------------------------------------------------------- start / ask
 
@@ -56,6 +58,7 @@ class QuizSession:
         note_id: uuid.UUID | None = None,
         note_ids: list[uuid.UUID] | None = None,
         items: list[ReviewItem] | None = None,
+        lead: str | None = None,
     ) -> QuizStep:
         async with self.deps.sessionmaker() as db:
             if items is None:
@@ -74,7 +77,8 @@ class QuizSession:
         batch = items[: self.deps.settings.quiz_batch]
         self.queue = [i.id for i in batch]
         self.total = len(batch)
-        return await self._ask_next(lead="Okay, let's practise. " if note_id else "Okay. ")
+        default = "Okay, let's practise. " if note_id else "Okay. "
+        return await self._ask_next(lead=default if lead is None else lead)
 
     async def _ask_next(self, lead: str = "") -> QuizStep:
         if not self.queue:
@@ -231,6 +235,8 @@ class QuizSession:
                 f"That's it for now. You answered {summary.unaided} of {summary.total} "
                 "without a hint."
             )
+            if self.outro:
+                spoken += " " + self.outro
         event = QuizStateEvent(phase="ended", summary=summary)
         return QuizStep(spoken, [event], ended=True)
 

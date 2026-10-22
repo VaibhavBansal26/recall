@@ -319,6 +319,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/briefs/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ready Brief
+         * @description Today's brief if it is waiting to be started: the frontend's "Your brief is ready".
+         */
+        get: operations["ready_brief_api_briefs_ready_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/briefs/{brief_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Brief */
+        get: operations["get_brief_api_briefs__brief_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sources": {
         parameters: {
             query?: never;
@@ -454,10 +491,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sessions/daily-brief": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Daily Brief
+         * @description Build today's brief (the n8n morning cron calls this). Safe to call repeatedly.
+         */
+        post: operations["daily_brief_api_sessions_daily_brief_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stats
+         * @description Due, retention, streaks, weakest notes. Read-only, so n8n's nudge may call it too.
+         */
+        get: operations["stats_api_stats_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ArticulationPoint */
+        ArticulationPoint: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Clarity */
+            clarity: number;
+            /** Structure */
+            structure: number;
+            /** Filler Rate */
+            filler_rate: number;
+            /** Wpm */
+            wpm: number;
+        };
         /** AuthStatus */
         AuthStatus: {
             /** Auth Required */
@@ -472,6 +565,58 @@ export interface components {
             /** Track Hint */
             track_hint?: string | null;
         };
+        /** BriefOut */
+        BriefOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            status: components["schemas"]["BriefStatus"];
+            /** Track */
+            track: string;
+            /** Due Today */
+            due_today: number;
+            /** Questions */
+            questions: components["schemas"]["BriefQuestion"][];
+            /**
+             * Created
+             * @default true
+             */
+            created: boolean;
+            /** Started At */
+            started_at?: string | null;
+            /** Completed At */
+            completed_at?: string | null;
+        };
+        /** BriefQuestion */
+        BriefQuestion: {
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /**
+             * Note Id
+             * Format: uuid
+             */
+            note_id: string;
+            /** Note Title */
+            note_title: string;
+            kind: components["schemas"]["PromptKind"];
+            /** Prompt */
+            prompt: string;
+        };
+        /**
+         * BriefStatus
+         * @enum {string}
+         */
+        BriefStatus: "ready" | "started" | "completed" | "empty";
         /** CitationOut */
         CitationOut: {
             /** Chunk Idx */
@@ -728,6 +873,20 @@ export interface components {
          * @enum {string}
          */
         PromptKind: "cloze" | "question" | "explain" | "teachback";
+        /** RetentionPoint */
+        RetentionPoint: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Reviews */
+            reviews: number;
+            /** Recalled */
+            recalled: number;
+            /** Retention */
+            retention?: number | null;
+        };
         /** ReviewItemOut */
         ReviewItemOut: {
             /**
@@ -980,6 +1139,47 @@ export interface components {
          * @enum {string}
          */
         Speaker: "user" | "assistant";
+        /** StatsOut */
+        StatsOut: {
+            /** Due Now */
+            due_now: number;
+            /** Due Today */
+            due_today: number;
+            /** Next Due At */
+            next_due_at?: string | null;
+            /** Items Total */
+            items_total: number;
+            /** Items Reviewed */
+            items_reviewed: number;
+            /** Notes Total */
+            notes_total: number;
+            /** Fragile Notes */
+            fragile_notes: number;
+            /** Sources Awaiting */
+            sources_awaiting: number;
+            /** Reviews Today */
+            reviews_today: number;
+            /** Reviewed Today */
+            reviewed_today: boolean;
+            /** Streak Current */
+            streak_current: number;
+            /** Streak Longest */
+            streak_longest: number;
+            /** Retention 7D */
+            retention_7d?: number | null;
+            /** Retention 30D */
+            retention_30d?: number | null;
+            /** Unaided Rate 30D */
+            unaided_rate_30d?: number | null;
+            /** Average Retrievability */
+            average_retrievability?: number | null;
+            /** Retention Curve */
+            retention_curve: components["schemas"]["RetentionPoint"][];
+            /** Weak Nodes */
+            weak_nodes: components["schemas"]["WeakNodeOut"][];
+            /** Articulation Trend */
+            articulation_trend?: components["schemas"]["ArticulationPoint"][];
+        };
         /** TrackChoice */
         TrackChoice: {
             /** Track */
@@ -1055,6 +1255,33 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** WeakNodeOut */
+        WeakNodeOut: {
+            /**
+             * Note Id
+             * Format: uuid
+             */
+            note_id: string;
+            /** Title */
+            title: string;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Strength */
+            strength?: number | null;
+            /**
+             * Fragile
+             * @default false
+             */
+            fragile: boolean;
+            /**
+             * Lapses
+             * @default 0
+             */
+            lapses: number;
         };
     };
     responses: never;
@@ -1691,6 +1918,57 @@ export interface operations {
             };
         };
     };
+    ready_brief_api_briefs_ready_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BriefOut"] | null;
+                };
+            };
+        };
+    };
+    get_brief_api_briefs__brief_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                brief_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BriefOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_sources_api_sources_get: {
         parameters: {
             query?: {
@@ -1932,6 +2210,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExportOut"];
+                };
+            };
+        };
+    };
+    daily_brief_api_sessions_daily_brief_post: {
+        parameters: {
+            query?: {
+                track?: string | null;
+                force?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BriefOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stats_api_stats_get: {
+        parameters: {
+            query?: {
+                track?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

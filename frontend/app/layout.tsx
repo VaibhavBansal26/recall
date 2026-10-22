@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { AuthGate } from "@/components/AuthGate";
+import { BriefBanner } from "@/components/BriefBanner";
 import { Nav } from "@/components/Nav";
 import { PwaRegister } from "@/components/PwaRegister";
 import "./globals.css";
@@ -32,6 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <PwaRegister />
         <AuthGate>
           <Nav />
+          <BriefBanner />
           {children}
         </AuthGate>
       </body>

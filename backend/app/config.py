@@ -1,6 +1,7 @@
 import uuid
 from functools import lru_cache
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -58,6 +59,10 @@ class Settings(BaseSettings):
     ingest_concurrency: int = 2  # sources processed at once
     recall_shared_secret: str = ""  # lets n8n call the ingest endpoints; empty = disabled
 
+    # --- daily brief and stats ---
+    user_timezone: str = "UTC"  # IANA name; decides what "today" and "yesterday" mean
+    brief_questions: int = 3
+
     # --- recall ---
     quiz_batch: int = 5  # questions per quiz session
     max_review_items_per_note: int = 2
@@ -73,6 +78,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _check_auth(self) -> "Settings":
+        try:
+            ZoneInfo(self.user_timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(
+                f"USER_TIMEZONE {self.user_timezone!r} is not an IANA time zone"
+            ) from exc
         if self.environment == "production":
             if len(self.auth_passphrase) < 12:
                 raise ValueError("production needs AUTH_PASSPHRASE of at least 12 characters")

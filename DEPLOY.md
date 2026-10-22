@@ -73,6 +73,8 @@ Also enable your provider's snapshot or backup feature if it has one.
 - **Change the passphrase:** edit `AUTH_PASSPHRASE`, `make prod-up`. Change `SESSION_SECRET` too
   to sign every device out at once.
 - **Brute force:** 5 wrong passphrases from one address locks it for 10 minutes.
+- **Daily brief and nudge:** set `USER_TIMEZONE` and (optionally) `NUDGE_URL`, then `make n8n-import` loads
+  `daily-brief-cron` (07:30) and `review-nudge` (18:00). Open Recall in the morning for the banner.
 - **n8n (ingest from anywhere):** set `RECALL_SHARED_SECRET` (`openssl rand -hex 24`), then
   `docker compose -f docker-compose.prod.yml --profile n8n up -d` and `COMPOSE_FILE=docker-compose.prod.yml make n8n-import`.
   Only `https://YOUR-DOMAIN/webhook/*` is reachable from outside (through Caddy); each workflow checks the

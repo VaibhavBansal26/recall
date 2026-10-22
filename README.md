@@ -13,6 +13,7 @@ Voice-first learning companion (single user, local-first). The full spec and pha
 | 2.5 Hosted backend + installable PWA | built; tested locally, not yet on a real VM or iOS device |
 | 3 Recall engine | done (verified with fakes only) |
 | 4 Ingestion and n8n | done (fake LLM; real extraction quality unmeasured) |
+| 5 Daily brief and stats | done (verified with fakes) |
 
 ## Use it on laptop, iPhone and iPad
 
@@ -129,3 +130,18 @@ curl -X POST http://localhost:5678/webhook/ingest-url \
   -H "Content-Type: application/json" -H "X-Recall-Secret: $RECALL_SHARED_SECRET" \
   -d '{"url": "https://example.com/some-article"}'
 ```
+
+## Phase 5 demo
+
+```bash
+make n8n-import                       # also loads daily-brief-cron and review-nudge
+curl -X POST localhost:8000/api/sessions/daily-brief -H "X-Recall-Secret: $RECALL_SHARED_SECRET"
+```
+
+1. Open any page: **Your brief is ready.** Press **Start brief**. You hear a greeting, then one question
+   on each of your three weakest notes (hint ladder as usual), then "N reviews are due today".
+2. **Stats** shows due today, streak, 7 and 30 day retention, the retention curve (hover it, or open the
+   table), and your weakest notes with a **Quiz me** link each.
+3. Set `USER_TIMEZONE` in `.env` (e.g. `Asia/Kolkata`) so "today" and the 07:30 / 18:00 schedules are yours.
+4. Evening nudge: set `NUDGE_URL` to an [ntfy](https://ntfy.sh) topic URL and `NUDGE_THRESHOLD`; only the
+   count of waiting reviews is sent.

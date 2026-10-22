@@ -8,7 +8,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.agent.deps import AgentDeps
 from app.agent.graph import build_graph
 from app.api import auth as auth_api
-from app.api import export, graph, health, links, notes, reviews, sessions, sources, voice
+from app.api import (
+    briefs,
+    export,
+    graph,
+    health,
+    links,
+    notes,
+    reviews,
+    sessions,
+    sources,
+    stats,
+    voice,
+)
 from app.auth import AuthService, LoginLimiter, require_auth, require_auth_or_secret
 from app.config import get_settings
 from app.db.session import make_engine, make_sessionmaker
@@ -62,7 +74,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="Recall", version="0.6.0", lifespan=lifespan)
+    app = FastAPI(title="Recall", version="0.7.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -78,10 +90,13 @@ def create_app() -> FastAPI:
     app.include_router(links.router, dependencies=guarded)
     app.include_router(graph.router, dependencies=guarded)
     app.include_router(reviews.router, dependencies=guarded)
+    app.include_router(briefs.router, dependencies=guarded)
     # n8n calls these with the shared secret instead of a browser session.
     machine = [Depends(require_auth_or_secret)]
     app.include_router(sources.router, dependencies=machine)
     app.include_router(export.router, dependencies=machine)
+    app.include_router(briefs.machine_router, dependencies=machine)  # the morning cron
+    app.include_router(stats.router, dependencies=machine)  # read-only; the evening nudge
     app.include_router(voice.router)  # authenticates its own WebSocket handshake
     return app
 

@@ -28,9 +28,16 @@ interface Props {
   autoQuiz?: boolean;
   /** Practise this one note instead of whatever is due. */
   quizNoteId?: string | null;
+  /** Run today's spoken daily brief. */
+  briefId?: string | null;
 }
 
-export function SessionView({ variant = "session", autoQuiz = false, quizNoteId = null }: Props) {
+export function SessionView({
+  variant = "session",
+  autoQuiz = false,
+  quizNoteId = null,
+  briefId = null,
+}: Props) {
   const s = useSessionStore();
   const { apply, setConnection, setNotes, syncNotes, setDiagram, undone, markSaved } = s;
   const socket = useRef<VoiceSocket | null>(null);
@@ -119,9 +126,9 @@ export function SessionView({ variant = "session", autoQuiz = false, quizNoteId 
     if (autoQuiz && ready && !autoStarted.current) {
       autoStarted.current = true;
       void player.current.unlock().catch(() => undefined);
-      socket.current?.send({ type: "quiz", note_id: quizNoteId });
+      socket.current?.send({ type: "quiz", note_id: quizNoteId, brief_id: briefId });
     }
-  }, [autoQuiz, ready, quizNoteId]);
+  }, [autoQuiz, ready, quizNoteId, briefId]);
 
   async function enableMic(mode: Exclude<MicMode, "off">) {
     setMicError(null);
@@ -211,7 +218,9 @@ export function SessionView({ variant = "session", autoQuiz = false, quizNoteId 
       <div className="flex flex-col gap-4">
         <header className="flex items-start justify-between">
           <div>
-            <h1 className="text-xl font-semibold">{variant === "review" ? "Review" : "Recall"}</h1>
+            <h1 className="text-xl font-semibold">
+              {briefId ? "Daily brief" : variant === "review" ? "Review" : "Recall"}
+            </h1>
             <p className="text-sm opacity-70">
               Track: AI Engineering (<code>{TRACK}</code>) · mode{" "}
               <span data-testid="mode">{s.mode.replace("_", " ")}</span>

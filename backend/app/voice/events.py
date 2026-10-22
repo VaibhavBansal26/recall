@@ -44,6 +44,7 @@ class QuizStartEvent(BaseModel):
 
     type: Literal["quiz"] = "quiz"
     note_id: uuid.UUID | None = None
+    brief_id: uuid.UUID | None = None  # start the spoken daily brief instead
 
 
 class QuizActionEvent(BaseModel):

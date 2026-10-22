@@ -1,10 +1,11 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.db.models import (
+    BriefStatus,
     DiagramKind,
     LinkKind,
     NoteOrigin,
@@ -242,3 +243,70 @@ class ExportFile(BaseModel):
 
 class ExportOut(BaseModel):
     files: list[ExportFile]
+
+
+class BriefQuestion(BaseModel):
+    item_id: uuid.UUID
+    note_id: uuid.UUID
+    note_title: str
+    kind: PromptKind
+    prompt: str  # never the answer
+
+
+class BriefOut(BaseModel):
+    id: uuid.UUID
+    date: date
+    status: BriefStatus
+    track: str
+    due_today: int
+    questions: list[BriefQuestion]
+    created: bool = True  # False when today's brief already existed
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
+class RetentionPoint(BaseModel):
+    date: date
+    reviews: int
+    recalled: int
+    retention: float | None = None
+
+
+class WeakNodeOut(BaseModel):
+    note_id: uuid.UUID
+    title: str
+    item_id: uuid.UUID
+    strength: float | None = None
+    fragile: bool = False
+    lapses: int = 0
+
+
+class ArticulationPoint(BaseModel):
+    date: date
+    clarity: float
+    structure: float
+    filler_rate: float
+    wpm: float
+
+
+class StatsOut(BaseModel):
+    due_now: int
+    due_today: int
+    next_due_at: datetime | None = None
+    items_total: int
+    items_reviewed: int
+    notes_total: int
+    fragile_notes: int
+    sources_awaiting: int
+    reviews_today: int
+    reviewed_today: bool
+    streak_current: int
+    streak_longest: int
+    retention_7d: float | None = None
+    retention_30d: float | None = None
+    unaided_rate_30d: float | None = None
+    average_retrievability: float | None = None
+    retention_curve: list[RetentionPoint]
+    weak_nodes: list[WeakNodeOut]
+    # Filled by the English track's teach-back scoring (Phase 6); empty until then.
+    articulation_trend: list[ArticulationPoint] = Field(default_factory=list)

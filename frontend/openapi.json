@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Recall",
-    "version": "0.6.0"
+    "version": "0.7.0"
   },
   "paths": {
     "/healthz": {
@@ -808,6 +808,73 @@
         }
       }
     },
+    "/api/briefs/ready": {
+      "get": {
+        "summary": "Ready Brief",
+        "description": "Today's brief if it is waiting to be started: the frontend's \"Your brief is ready\".",
+        "operationId": "ready_brief_api_briefs_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/BriefOut"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Ready Brief Api Briefs Ready Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/briefs/{brief_id}": {
+      "get": {
+        "summary": "Get Brief",
+        "operationId": "get_brief_api_briefs__brief_id__get",
+        "parameters": [
+          {
+            "name": "brief_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Brief Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BriefOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/sources": {
       "post": {
         "summary": "Create Source",
@@ -1118,10 +1185,148 @@
           }
         }
       }
+    },
+    "/api/sessions/daily-brief": {
+      "post": {
+        "summary": "Daily Brief",
+        "description": "Build today's brief (the n8n morning cron calls this). Safe to call repeatedly.",
+        "operationId": "daily_brief_api_sessions_daily_brief_post",
+        "parameters": [
+          {
+            "name": "track",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Track"
+            }
+          },
+          {
+            "name": "force",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Force"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BriefOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stats": {
+      "get": {
+        "summary": "Stats",
+        "description": "Due, retention, streaks, weakest notes. Read-only, so n8n's nudge may call it too.",
+        "operationId": "stats_api_stats_get",
+        "parameters": [
+          {
+            "name": "track",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Track"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "ArticulationPoint": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "clarity": {
+            "type": "number",
+            "title": "Clarity"
+          },
+          "structure": {
+            "type": "number",
+            "title": "Structure"
+          },
+          "filler_rate": {
+            "type": "number",
+            "title": "Filler Rate"
+          },
+          "wpm": {
+            "type": "number",
+            "title": "Wpm"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "clarity",
+          "structure",
+          "filler_rate",
+          "wpm"
+        ],
+        "title": "ArticulationPoint"
+      },
       "AuthStatus": {
         "properties": {
           "auth_required": {
@@ -1164,6 +1369,121 @@
           "file"
         ],
         "title": "Body_upload_source_api_sources_upload_post"
+      },
+      "BriefOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BriefStatus"
+          },
+          "track": {
+            "type": "string",
+            "title": "Track"
+          },
+          "due_today": {
+            "type": "integer",
+            "title": "Due Today"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/BriefQuestion"
+            },
+            "type": "array",
+            "title": "Questions"
+          },
+          "created": {
+            "type": "boolean",
+            "title": "Created",
+            "default": true
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "date",
+          "status",
+          "track",
+          "due_today",
+          "questions"
+        ],
+        "title": "BriefOut"
+      },
+      "BriefQuestion": {
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Item Id"
+          },
+          "note_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Note Id"
+          },
+          "note_title": {
+            "type": "string",
+            "title": "Note Title"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/PromptKind"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          }
+        },
+        "type": "object",
+        "required": [
+          "item_id",
+          "note_id",
+          "note_title",
+          "kind",
+          "prompt"
+        ],
+        "title": "BriefQuestion"
+      },
+      "BriefStatus": {
+        "type": "string",
+        "enum": [
+          "ready",
+          "started",
+          "completed",
+          "empty"
+        ],
+        "title": "BriefStatus"
       },
       "CitationOut": {
         "properties": {
@@ -1748,6 +2068,41 @@
           "teachback"
         ],
         "title": "PromptKind"
+      },
+      "RetentionPoint": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "reviews": {
+            "type": "integer",
+            "title": "Reviews"
+          },
+          "recalled": {
+            "type": "integer",
+            "title": "Recalled"
+          },
+          "retention": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "reviews",
+          "recalled"
+        ],
+        "title": "RetentionPoint"
       },
       "ReviewItemOut": {
         "properties": {
@@ -2471,6 +2826,148 @@
         ],
         "title": "Speaker"
       },
+      "StatsOut": {
+        "properties": {
+          "due_now": {
+            "type": "integer",
+            "title": "Due Now"
+          },
+          "due_today": {
+            "type": "integer",
+            "title": "Due Today"
+          },
+          "next_due_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Due At"
+          },
+          "items_total": {
+            "type": "integer",
+            "title": "Items Total"
+          },
+          "items_reviewed": {
+            "type": "integer",
+            "title": "Items Reviewed"
+          },
+          "notes_total": {
+            "type": "integer",
+            "title": "Notes Total"
+          },
+          "fragile_notes": {
+            "type": "integer",
+            "title": "Fragile Notes"
+          },
+          "sources_awaiting": {
+            "type": "integer",
+            "title": "Sources Awaiting"
+          },
+          "reviews_today": {
+            "type": "integer",
+            "title": "Reviews Today"
+          },
+          "reviewed_today": {
+            "type": "boolean",
+            "title": "Reviewed Today"
+          },
+          "streak_current": {
+            "type": "integer",
+            "title": "Streak Current"
+          },
+          "streak_longest": {
+            "type": "integer",
+            "title": "Streak Longest"
+          },
+          "retention_7d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention 7D"
+          },
+          "retention_30d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retention 30D"
+          },
+          "unaided_rate_30d": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unaided Rate 30D"
+          },
+          "average_retrievability": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Retrievability"
+          },
+          "retention_curve": {
+            "items": {
+              "$ref": "#/components/schemas/RetentionPoint"
+            },
+            "type": "array",
+            "title": "Retention Curve"
+          },
+          "weak_nodes": {
+            "items": {
+              "$ref": "#/components/schemas/WeakNodeOut"
+            },
+            "type": "array",
+            "title": "Weak Nodes"
+          },
+          "articulation_trend": {
+            "items": {
+              "$ref": "#/components/schemas/ArticulationPoint"
+            },
+            "type": "array",
+            "title": "Articulation Trend"
+          }
+        },
+        "type": "object",
+        "required": [
+          "due_now",
+          "due_today",
+          "items_total",
+          "items_reviewed",
+          "notes_total",
+          "fragile_notes",
+          "sources_awaiting",
+          "reviews_today",
+          "reviewed_today",
+          "streak_current",
+          "streak_longest",
+          "retention_curve",
+          "weak_nodes"
+        ],
+        "title": "StatsOut"
+      },
       "TrackChoice": {
         "properties": {
           "track": {
@@ -2643,6 +3140,52 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WeakNodeOut": {
+        "properties": {
+          "note_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Note Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "item_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Item Id"
+          },
+          "strength": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strength"
+          },
+          "fragile": {
+            "type": "boolean",
+            "title": "Fragile",
+            "default": false
+          },
+          "lapses": {
+            "type": "integer",
+            "title": "Lapses",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "note_id",
+          "title",
+          "item_id"
+        ],
+        "title": "WeakNodeOut"
       }
     }
   }

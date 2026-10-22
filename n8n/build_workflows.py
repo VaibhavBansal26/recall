@@ -57,6 +57,13 @@ def condition(left: str, operation: str, right: str | None = None, kind: str = "
     }
 
 
+def all_of(*conds: dict[str, Any]) -> dict[str, Any]:
+    """Combine single-condition dicts from condition() into one that requires all of them."""
+    merged = dict(conds[0])
+    merged["conditions"] = [c["conditions"][0] for c in conds]
+    return merged
+
+
 def if_node(name: str, x: int, y: int, cond: dict[str, Any]) -> dict[str, Any]:
     return node(name, "if", 2.2, x, y, conditions=cond, options={})
 
@@ -248,12 +255,80 @@ def sync_export() -> dict[str, Any]:
     return workflow("recall-sync-export", "Recall: nightly Markdown export", nodes, connections)
 
 
+def daily_brief_cron() -> dict[str, Any]:
+    """Every morning: build today's brief so the app can say "Your brief is ready"."""
+    nodes = [
+        node("Every morning", "scheduleTrigger", 1.2, 0, 120, rule={"interval": [{"field": "cronExpression", "expression": "30 7 * * *"}]}),
+        node("Run now", "manualTrigger", 1, 0, 300),
+        node(
+            "Build brief",
+            "httpRequest",
+            4.2,
+            260,
+            200,
+            method="POST",
+            url=f"={BACKEND}/api/sessions/daily-brief",
+            options={"response": {"response": {"neverError": True}}, "timeout": 60000},
+            **SECRET_HEADER,
+        ),
+    ]
+    connections = link(("Every morning", "Build brief", 0), ("Run now", "Build brief", 0))
+    return workflow("recall-daily-brief", "Recall: daily brief (morning)", nodes, connections)
+
+
+def review_nudge() -> dict[str, Any]:
+    """Every evening: if too many reviews are waiting, send a push (ntfy) with just the count."""
+    enough = condition("={{ $json.due_now }}", "gte", "={{ Number($env.NUDGE_THRESHOLD || 10) }}", kind="number")
+    configured = condition("={{ $env.NUDGE_URL || '' }}", "notEmpty")
+    nodes = [
+        node("Every evening", "scheduleTrigger", 1.2, 0, 120, rule={"interval": [{"field": "cronExpression", "expression": "0 18 * * *"}]}),
+        node("Run now", "manualTrigger", 1, 0, 300),
+        node(
+            "Get stats",
+            "httpRequest",
+            4.2,
+            240,
+            200,
+            method="GET",
+            url=f"={BACKEND}/api/stats",
+            options={"timeout": 30000},
+            **SECRET_HEADER,
+        ),
+        if_node("Too many waiting", 480, 200, all_of(enough, configured)),
+        node(
+            "Send nudge",
+            "httpRequest",
+            4.2,
+            720,
+            120,
+            method="POST",
+            url="={{ $env.NUDGE_URL }}",
+            sendHeaders=True,
+            headerParameters={"parameters": [{"name": "Title", "value": "Recall"}, {"name": "Tags", "value": "brain"}]},
+            sendBody=True,
+            contentType="raw",
+            rawContentType="text/plain",
+            body="={{ $json.due_now }} reviews are waiting for you. A few minutes now keeps them fresh.",
+            options={"timeout": 15000},
+        ),
+    ]
+    connections = link(
+        ("Every evening", "Get stats", 0),
+        ("Run now", "Get stats", 0),
+        ("Get stats", "Too many waiting", 0),
+        ("Too many waiting", "Send nudge", 0),
+    )
+    return workflow("recall-review-nudge", "Recall: evening review nudge", nodes, connections)
+
+
 if __name__ == "__main__":
     OUT.mkdir(exist_ok=True)
     for slug, wf in {
         "ingest-url": ingest_url(),
         "ingest-inbox": ingest_inbox(),
         "sync-export": sync_export(),
+        "daily-brief-cron": daily_brief_cron(),
+        "review-nudge": review_nudge(),
     }.items():
         (OUT / f"{slug}.json").write_text(json.dumps(wf, indent=2) + "\n")
         print("wrote", OUT / f"{slug}.json")

@@ -9,7 +9,7 @@ export type ClientEvent =
   | { type: "interrupt" }
   | { type: "speech_start" }
   | { type: "end_speech" }
-  | { type: "quiz"; note_id?: string | null }
+  | { type: "quiz"; note_id?: string | null; brief_id?: string | null }
   | { type: "quiz_action"; action: "hint" | "forgot" | "skip" | "end" };
 
 export interface CaptureItem {

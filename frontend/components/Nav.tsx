@@ -11,6 +11,7 @@ const LINKS = [
   { href: "/session", label: "Session" },
   { href: "/review", label: "Review" },
   { href: "/sources", label: "Sources" },
+  { href: "/stats", label: "Stats" },
   { href: "/map", label: "Memory map" },
 ];
 

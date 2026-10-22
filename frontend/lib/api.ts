@@ -169,3 +169,16 @@ export const approveSource = (id: string) => postJson(`/api/sources/${id}/approv
 export const retrySource = (id: string) => postJson(`/api/sources/${id}/retry`);
 export const chooseSourceTrack = (id: string, track: string) =>
   postJson(`/api/sources/${id}/track`, { track });
+
+export type StatsOut = components["schemas"]["StatsOut"];
+export type BriefOut = components["schemas"]["BriefOut"];
+
+export async function getStats(track?: string): Promise<StatsOut> {
+  const q = track ? `?track=${encodeURIComponent(track)}` : "";
+  return json(await apiFetch(`/api/stats${q}`), "GET stats");
+}
+
+/** Today's brief if it is waiting to be started, else null. */
+export async function getReadyBrief(): Promise<BriefOut | null> {
+  return json(await apiFetch("/api/briefs/ready"), "GET brief");
+}

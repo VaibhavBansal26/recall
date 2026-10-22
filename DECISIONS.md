@@ -2,6 +2,42 @@
 
 Newest first. Anything that differs from `CLAUDE.md` goes here with the reason.
 
+## Phase 5: daily brief and stats
+
+- **"Today" is the user's day.** `USER_TIMEZONE` (an IANA name, validated at startup) decides which
+  date a brief belongs to, what "due today" means (until local midnight, DST-aware) and the day buckets
+  in the stats. n8n's schedules use the same zone.
+- **The brief picks the three weakest notes, one question each.** Weakness = forgetting (1 minus FSRS
+  retrievability) + 0.5 if fragile + 0.25 per Again/Hard in the last 36 hours (capped at 4). "Yesterday's
+  weakest" is therefore current weakness with a recent-misses boost, not a literal one-day window. Each
+  note contributes its weakest question. Fewer than three weak notes are topped up from what is due, and
+  unconfirmed or never-reviewed notes are never "weak". Nothing to ask gives an `empty` brief and no prompt.
+- **One brief per day, cron-safe.** `POST /api/sessions/daily-brief` returns today's brief if it exists
+  (200, `created: false`); `?force=true` rebuilds a brief that has not been started. Table `daily_briefs`
+  (new, unique per user and date).
+- **It starts on a click.** The banner "Your brief is ready" (shown wherever you are, hidden on the review
+  page) opens `/review?brief=ID`, which starts the spoken session over the WebSocket. Saying "start my
+  brief" also works and builds it first if the cron has not run.
+- **Spoken shape:** a greeting, one question per weak note through the normal hint ladder and FSRS
+  grading, then the summary plus "and that's your brief, N reviews are due today". Ending early counts
+  as done so the banner does not nag.
+- **Stats** (`GET /api/stats`): due now and today, streaks (a streak survives until the end of today),
+  7 and 30 day retention (Hard, Good or Easy over all reviews, FSRS's "true retention"), the share
+  answered without a hint, mean retrievability now, a 30 day retention curve (days with no reviews are
+  gaps, not zeros), weakest notes, sources waiting for approval.
+- **Articulation trend is an empty list** until the English track exists (Phase 6).
+- **Machine access:** n8n may call `POST /api/sessions/daily-brief` and `GET /api/stats` with the shared
+  secret. `GET /api/briefs/ready` stays browser-only.
+- **Two more n8n workflows:** `daily-brief-cron` (07:30 in `USER_TIMEZONE`) and `review-nudge` (18:00: if
+  `due_now` is at least `NUDGE_THRESHOLD`, default 10, and `NUDGE_URL` is set, POST a plain-text reminder
+  containing only the count; an ntfy topic works). Email needs credentials n8n cannot ship in a workflow
+  file, so push via ntfy is the built-in route and an email node can be added in the n8n editor.
+- **Retention chart:** one series, so no legend; 2 px line, soft area wash, labelled end value, hover
+  tooltip, and a table view for accessibility.
+- **Not verified:** a real morning on a real VM (the cron fires on schedule), push delivery to an actual
+  phone (tested against a local listener), and the brief's spoken pacing with real TTS and the 3 to 5
+  minute target (it is three questions through the hint ladder).
+
 ## Phase 4: ingestion and n8n
 
 - **Pipeline:** fetch/extract, chunk (about 450 words, 60 overlap, roughly 600 tokens), embed into

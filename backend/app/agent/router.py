@@ -52,6 +52,7 @@ _EXPLAIN = _rx(
     r"what is|what'?s|what are|how does|how do|how is|why does|why do|why is)\s+(.+?)[.?!]?\s*$"
 )
 
+_BRIEF = _rx(r"\b(daily|morning) brief(ing)?\b|\bmy brief\b|\bstart (the |my )?brief\b")
 _INGEST_START = _rx(
     r"\b(what did you (file|add)|what'?s new|any new (material|sources?|notes)|"
     r"review (the )?(new )?(material|sources?)|what (was|got) filed|new material)\b"
@@ -110,6 +111,8 @@ def route_by_rules(text: str, current: Mode) -> Route | None:
             if pattern.search(text) and len(text.split()) <= 6:
                 return Route(Mode.read_back, command=command)
 
+    if _BRIEF.search(text):
+        return Route(Mode.recall_quiz, command="brief")
     if _INGEST_START.search(text):
         return Route(Mode.ingest_review, command="start")
     if m := _READ_BACK.search(text):

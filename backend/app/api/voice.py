@@ -4,7 +4,9 @@ import contextlib
 import logging
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, WebSocket
 from pydantic import BaseModel, ValidationError
@@ -22,7 +24,16 @@ from app.agent.router import Mode, Route, route_turn
 from app.agent.state import AgentState, DiagramItem
 from app.auth import COOKIE_NAME
 from app.config import get_settings
-from app.db.models import CaptureEvent, LearningSession, Source, SourceStatus, Speaker, Utterance
+from app.db.models import (
+    BriefStatus,
+    CaptureEvent,
+    LearningSession,
+    Source,
+    SourceStatus,
+    Speaker,
+    Utterance,
+)
+from app.services import briefs as briefs_svc
 from app.services import confusion as confusion_svc
 from app.services import diagrams as diagram_svc
 from app.services import ingest as ingest_svc
@@ -374,6 +385,53 @@ class _Connection:
 
     # ---- recall_quiz ----
 
+    async def start_brief(self, brief_id: uuid.UUID | None = None) -> None:
+        """The spoken daily brief: the weakest notes, one question each, then what is due."""
+        if self.session_id is None:
+            await self.out.send(ErrorEvent(message="Send a start event first"))
+            return
+        await self.interrupt(announce=True)
+        self._cancel_silence()
+        latency = TurnLatency()
+        settings = self.deps.settings
+        tz = ZoneInfo(settings.user_timezone)
+        async with self.deps.sessionmaker() as db:
+            brief = await briefs_svc.get_brief(db, brief_id) if brief_id else None
+            if brief is None:  # asked by voice before the morning cron ran: build it now
+                brief, _ = await briefs_svc.create_brief(
+                    db,
+                    track_slug=self.track,
+                    now=datetime.now(UTC),
+                    tz=tz,
+                    questions=settings.brief_questions,
+                )
+            if brief.status == BriefStatus.completed:
+                self._start_reply(_once("You've already done today's brief."), latency)
+                return
+            items = await briefs_svc.brief_items(db, brief)
+            if not items:
+                self._start_reply(
+                    _once("There's nothing to put in a brief yet. Capture some ideas first."),
+                    latency,
+                )
+                return
+            due_today = await briefs_svc.due_today_count(
+                db, track_slug=self.track, now=datetime.now(UTC), tz=tz
+            )
+            await briefs_svc.mark_started(db, brief, self.session_id)
+            brief_pk = brief.id
+        self.quiz = QuizSession(
+            self.deps,
+            self.session_id,
+            self.track,
+            outro=briefs_svc.spoken_outro(due_today),
+            brief_id=brief_pk,
+        )
+        self.mode = Mode.recall_quiz
+        await self._persist_mode(self.mode)
+        step = await self.quiz.start(items=items, lead=briefs_svc.spoken_intro(len(items)))
+        await self._play_quiz_step(step, latency)
+
     async def start_quiz(
         self, *, note_id: uuid.UUID | None = None, topic: str | None = None
     ) -> None:
@@ -400,8 +458,11 @@ class _Connection:
         await self._play_quiz_step(step, latency)
 
     async def _handle_quiz(self, route: Route, latency: TurnLatency) -> None:
-        if self.quiz is None:  # a "quiz me" request from speech
-            await self.start_quiz(topic=route.topic)
+        if self.quiz is None:  # a "quiz me" or "start my brief" request from speech
+            if route.command == "brief":
+                await self.start_brief()
+            else:
+                await self.start_quiz(topic=route.topic)
             return
         command = route.command or "answer"
         text = self.window[-1] if self.window else ""
@@ -436,6 +497,11 @@ class _Connection:
         if step.diagram_note_id is not None:
             self._spawn(self._send_note_diagram(step.diagram_note_id))
         if step.ended:
+            if self.quiz is not None and self.quiz.brief_id is not None:
+                async with self.deps.sessionmaker() as db:
+                    brief = await briefs_svc.get_brief(db, self.quiz.brief_id)
+                    if brief is not None:
+                        await briefs_svc.mark_completed(db, brief)
             await self._set_mode(Mode.capture)
         self._start_reply(_once(step.spoken), latency)
 
@@ -764,7 +830,10 @@ async def voice_ws(ws: WebSocket) -> None:
             elif isinstance(event, EndSpeechEvent):
                 await conn.end_speech()
             elif isinstance(event, QuizStartEvent):
-                await conn.start_quiz(note_id=event.note_id)
+                if event.brief_id is not None:
+                    await conn.start_brief(event.brief_id)
+                else:
+                    await conn.start_quiz(note_id=event.note_id)
             elif isinstance(event, QuizActionEvent):
                 await conn.quiz_action(event.action)
     finally:

@@ -50,11 +50,15 @@ services:
     environment:
       N8N_HOST: localhost
       N8N_SECURE_COOKIE: "false"
-      GENERIC_TIMEZONE: ${TZ:-UTC}
+      GENERIC_TIMEZONE: ${USER_TIMEZONE:-UTC}
+      TZ: ${USER_TIMEZONE:-UTC}
       RECALL_BACKEND_URL: http://backend:8000
       RECALL_SHARED_SECRET: ${RECALL_SHARED_SECRET:?set RECALL_SHARED_SECRET in .env}
       # Workflows may only touch /files (the inbox to watch and the export folder to write).
       N8N_RESTRICT_FILE_ACCESS_TO: /files
+      # Evening nudge: push a reminder when this many reviews are due (needs NUDGE_URL, e.g. an ntfy topic).
+      NUDGE_URL: ${NUDGE_URL:-}
+      NUDGE_THRESHOLD: ${NUDGE_THRESHOLD:-10}
       # The inbox workflow needs the Local File Trigger (off by default in n8n 2); shell commands stay off.
       NODES_EXCLUDE: '["n8n-nodes-base.executeCommand"]'
       N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"

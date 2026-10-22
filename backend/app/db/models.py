@@ -1,11 +1,12 @@
 import enum
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Enum,
     Float,
@@ -46,6 +47,13 @@ class LinkKind(enum.StrEnum):
     example_of = "example_of"  # from_note is an example of to_note
     contrasts = "contrasts"
     appears_in = "appears_in"  # from_note appears in to_note
+
+
+class BriefStatus(enum.StrEnum):
+    ready = "ready"  # built (by the morning cron), waiting for the user to press start
+    started = "started"
+    completed = "completed"
+    empty = "empty"  # nothing worth asking about today
 
 
 class SourceKind(enum.StrEnum):
@@ -389,3 +397,31 @@ class NoteCitation(Base):
     )
 
     chunk: Mapped[SourceChunk] = relationship(lazy="joined")
+
+
+class DailyBrief(Base):
+    """One spoken morning brief per day: the weakest notes, one question each."""
+
+    __tablename__ = "daily_briefs"
+    __table_args__ = (UniqueConstraint("user_id", "brief_date"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()")
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(default=LOCAL_USER_ID)
+    track_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tracks.id"))
+    brief_date: Mapped[date] = mapped_column(Date)  # in the user's time zone
+    status: Mapped[BriefStatus] = mapped_column(Enum(BriefStatus, name="brief_status"))
+    # Review item ids in the order they will be asked.
+    item_ids: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    due_today: Mapped[int] = mapped_column(Integer, default=0)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("sessions.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, server_default=sql_text("now()")
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    track: Mapped[Track] = relationship(lazy="joined")
