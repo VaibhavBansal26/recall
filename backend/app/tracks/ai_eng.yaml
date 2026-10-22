@@ -1,0 +1,6 @@
+slug: ai-eng
+name: AI Engineering
+description: LLMs, agents, RAG, evals and systems. Concept notes and architecture diagrams.
+endpointing:
+  silence_ms: 700
+  capture_silence_ms: 1200

@@ -1,0 +1,23 @@
+# One public origin: Caddy terminates HTTPS (automatic Let's Encrypt for a real domain) and routes
+# the API and WebSocket to the backend and everything else to the web app. Same origin means the
+# session cookie, the WebSocket and the PWA all just work, with no CORS.
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy same-origin
+		Permissions-Policy "microphone=(self), camera=(), geolocation=()"
+		-Server
+	}
+
+	@backend path /api/* /ws/* /healthz
+	handle @backend {
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

@@ -1,0 +1,65 @@
+name: recall
+
+# Everything binds to localhost only (single-user, no auth in v1).
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-recall}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-recall}
+      POSTGRES_DB: ${POSTGRES_DB:-recall}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-recall} -d ${POSTGRES_DB:-recall}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-recall}:${POSTGRES_PASSWORD:-recall}@db:5432/${POSTGRES_DB:-recall}
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-8000}
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+
+  # n8n only does ingestion triggers, cron and sync (never the live voice loop).
+  n8n:
+    image: n8nio/n8n:latest
+    environment:
+      N8N_HOST: localhost
+      N8N_SECURE_COOKIE: "false"
+      GENERIC_TIMEZONE: ${TZ:-UTC}
+      RECALL_BACKEND_URL: http://backend:8000
+      RECALL_SHARED_SECRET: ${RECALL_SHARED_SECRET:-change-me}
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+    ports:
+      - "127.0.0.1:${N8N_PORT:-5678}:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/workflows:ro
+
+volumes:
+  pgdata:
+  n8n_data:
