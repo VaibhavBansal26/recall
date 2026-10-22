@@ -60,8 +60,8 @@ and restart (`docker compose up -d --build backend`):
 
 ```bash
 VOICE_PROVIDER=pipeline
-DEEPGRAM_API_KEY=...
-ELEVENLABS_API_KEY=...
+ELEVENLABS_API_KEY=...       # speech-to-text (Scribe) and the voice
+STT_PROVIDER=elevenlabs      # default; "deepgram" also needs DEEPGRAM_API_KEY
 ELEVENLABS_VOICE_ID=...
 LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=...        # LLM_FAST_MODEL / LLM_DEEP_MODEL are preset in .env.example
@@ -161,4 +161,4 @@ Teach-back (any track): in **Teach-back** type a topic (or leave it empty for a 
 Start, or say "let me teach it back". Explain it, then press **I'm done** or say "I'm done".
 You get pace, fillers per 100 words, long pauses, sentence length, the what/how/why/impact checklist,
 clarity, one thing done well, one thing to fix, and one weak sentence rewritten. **Stats** charts the trend.
-With the mic on (real Deepgram) pace and pauses are measured; typed text shows "–" for pace.
+With the mic on (real speech-to-text) pace and pauses are measured; typed text shows "–" for pace.

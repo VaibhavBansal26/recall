@@ -16,7 +16,7 @@ Only ports 80 and 443 are open. Postgres and the app containers are not reachabl
 ## 1. What you need
 - A VM: Ubuntu 24.04, 2 GB RAM, 20 GB disk is plenty (about 5 to 10 USD a month).
 - A domain or subdomain you control, with an **A record** pointing at the VM's IP.
-- Optional now, needed for real voice: Deepgram, ElevenLabs, Anthropic and Voyage API keys.
+- Optional now, needed for real voice: ElevenLabs (listening and speaking), Anthropic and Voyage (embeddings) API keys.
 
 ## 2. Prepare the VM
 ```bash

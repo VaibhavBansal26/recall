@@ -30,8 +30,12 @@ class Settings(BaseSettings):
 
     # --- voice ---
     voice_provider: Literal["fake", "pipeline", "realtime"] = "fake"
+    # elevenlabs: one voice key covers listening and speaking. deepgram: separate key.
+    stt_provider: Literal["elevenlabs", "deepgram"] = "elevenlabs"
+    stt_language: str = "en"
+    elevenlabs_stt_model: str = "scribe_v2_realtime"
     deepgram_api_key: str = ""
-    stt_model: str = "nova-3"
+    stt_model: str = "nova-3"  # Deepgram model
     elevenlabs_api_key: str = ""
     elevenlabs_voice_id: str = ""
     tts_model: str = "eleven_flash_v2_5"

@@ -2,6 +2,15 @@
 
 Newest first. Anything that differs from `CLAUDE.md` goes here with the reason.
 
+## Speech-to-text provider (post Phase 6)
+
+- **ElevenLabs Scribe v2 realtime is now the default STT** (`STT_PROVIDER=elevenlabs`), so one ElevenLabs
+  key covers listening and speaking. Deepgram stays as `STT_PROVIDER=deepgram`. The ElevenLabs client
+  follows their published websocket protocol but has **not been run against the live service**: only
+  its message handling is unit-tested. Check the first real session (Debug panel) before relying on it.
+- Segments commit on the server's voice-activity detection using the track's silence setting;
+  push-to-talk release sends a short silence with `commit` set to flush.
+
 ## Phase 6: more tracks and articulation scoring
 
 - **The `realtime` voice provider is not built.** The spec calls it optional. It needs an
