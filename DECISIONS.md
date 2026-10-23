@@ -2,6 +2,21 @@
 
 Newest first. Anything that differs from `CLAUDE.md` goes here with the reason.
 
+## Aria (the assistant's name and self-awareness)
+
+- **The assistant is called Aria.** One persona prompt (`agent/prompts/aria.md`) is put in front of every
+  conversational reply (capture acknowledgement, explanation, discussion, small talk). It lists exactly what
+  she can and cannot do, so "what can you do?" is answered from facts, not guesses. Saying "Aria, ..." before
+  a command is the same command. The ElevenLabs voice is unchanged (a name is text, not a new voice).
+- **She sees the library fresh each turn.** `services/library.py` reads the track's notebooks, note counts,
+  recent titles and other tracks from the database for every reply, so anything added a moment ago is already
+  known. She is told never to invent a title that is not listed.
+- **She notices new files.** A notebook this connection did not make (another device, an upload, n8n) is
+  announced once at the end of her next reply ("I noticed a new notes file, X ... say recite"). Not during
+  a quiz, recitation or discussion; it waits. Notes added into an existing notebook are not announced
+  (they show in her library view and when you ask).
+- Cost: one small database query per spoken reply, and a longer system prompt on those calls.
+
 ## Notebooks, discussions, recitation (post Phase 6, from the user's workflow)
 
 The user described how they actually study: "create a new notes file for binary search under dsa", a system

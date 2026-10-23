@@ -313,6 +313,11 @@ class FakeLLM(LLMClient):
                 "My suggestion is to partition the data by user. ",
                 "How would you handle a hot partition?",
             ),
+            "recite_answer": (
+                "Good question. ",
+                f"In short, {_field(user, 'QUESTION').rstrip('?').lower()} comes down to "
+                "the idea in your note.",
+            ),
             "discuss_choose": (
                 "Okay, let's do a design discussion. ",
                 "What problem would you like to work through?",
@@ -322,6 +327,19 @@ class FakeLLM(LLMClient):
                 "Who will use it, and roughly how much traffic should it handle?",
             ),
         }
+        if purpose == "about":
+            named = re.findall(r"^- (.+?) \(", system, re.M)
+            seen = (
+                f" I can see your notebooks: {', '.join(named)}."
+                if named
+                else (" I don't see any notebooks yet.")
+            )
+            scripts["about"] = (
+                "I'm Aria, your study companion. ",
+                "I can capture notes, explain ideas, quiz you, recite your notes "
+                "and discuss designs.",
+                seen,
+            )
         if purpose == "discuss" and "STAGE: open" in user:
             purpose = "discuss_open"
         elif purpose == "discuss" and "STAGE: choose" in user:

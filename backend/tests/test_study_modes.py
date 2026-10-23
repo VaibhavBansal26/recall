@@ -291,3 +291,67 @@ def test_drawing_with_no_notebook_open_asks_for_one(client: TestClient) -> None:
         conv.say("draw the diagram")
         conv.kind("assistant_done")
         assert "Open or create a notes file first" in conv.spoken()
+
+
+# ---- asking Aria something in the middle of a recitation ----
+
+
+def test_a_question_in_the_middle_of_a_recitation_is_answered_and_the_recitation_resumes(
+    client: TestClient,
+) -> None:
+    recite_notebook(client)
+    with client.websocket_connect("/ws/voice") as ws:
+        conv = Conv(ws)
+        conv.start("dsa")
+        conv.say("start reciting my binary search notes")
+        conv.kind("quiz", phase="asking")
+        conv.kind("assistant_done")
+
+        conv.say("wait, why does halving the range make it fast?")  # a question, not an answer
+        conv.kind("assistant_done")
+        spoken = conv.spoken()
+        assert "Good question" in spoken
+        assert "Back to the question. What does each step halve?" in spoken
+        assert not [e for e in conv.of("quiz") if e["phase"] in ("graded", "hint")]  # not graded
+        assert not [e for e in conv.of("mode") if e["mode"] == "explain"]  # still reciting
+
+        conv.say("it halves the range")  # the real answer is graded, and the recitation goes on
+        assert conv.kind("quiz", phase="graded")["grade"] in ("Good", "Easy")
+        conv.kind("read_back", index=1)
+
+
+def test_a_question_while_a_note_is_being_read_does_not_end_the_reading(
+    client: TestClient,
+) -> None:
+    recite_notebook(client)
+    with client.websocket_connect("/ws/voice") as ws:
+        conv = Conv(ws)
+        conv.start("dsa")
+        conv.say("read me my notes on binary search")
+        conv.kind("read_back", index=0)
+        conv.kind("assistant_done")
+
+        conv.say("what does sorted mean here?")
+        conv.kind("assistant_done")
+        assert "Say next when you're ready" in conv.spoken()
+        conv.say("next")
+        conv.kind("read_back", index=1)  # carried on from the same place
+
+
+def test_control_words_and_answers_are_not_mistaken_for_questions(client: TestClient) -> None:
+    from app.agent.commands import is_side_question
+
+    for text in (
+        "it halves the range",
+        "next",
+        "can you repeat that",
+        "skip this one",
+        "I don't know",
+    ):
+        assert not is_side_question(text), text
+    for text in (
+        "why does it need to be sorted?",
+        "can you explain what a range is",
+        "what do you mean by range",
+    ):
+        assert is_side_question(text), text

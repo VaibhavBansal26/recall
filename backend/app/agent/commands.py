@@ -272,3 +272,24 @@ def parse_recite(text: str) -> ReciteCommand | None:
 
 def is_draw(text: str) -> bool:
     return bool(_DRAW.match(text))
+
+
+_SIDE_QUESTION = _rx(
+    r"^\W*(?:(?:ok(?:ay)?|wait|sorry|hold on|actually|so|and|but|hmm+|um+)[, ]+)*"
+    r"(?:what|why|how|when|where|who|which|can you|could you|can i ask|may i ask|explain|"
+    r"tell me|what do you mean|i have a question|quick question)\b"
+)
+_CONTROL = _rx(
+    r"\b(?:repeat|again|slow(?:er)?|faster|speed up|skip|next|continue|go on|stop|hint|"
+    r"what was the question|say that again|go back)\b"
+)
+
+
+def is_side_question(text: str) -> bool:
+    """Something the learner asks in the middle of a recitation (as opposed to an answer to the
+    check question, or a control word such as "next" or "repeat that")."""
+    if len(text.split()) < 2 or _CONTROL.search(text):
+        return False
+    return bool(_SIDE_QUESTION.match(text)) or (
+        text.strip().endswith("?") and len(text.split()) >= 4
+    )

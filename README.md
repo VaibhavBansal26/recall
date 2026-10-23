@@ -180,3 +180,10 @@ On the Session page (or say these out loud; they also work with the mic):
 
 The **Notebooks** page lists each notebook's notes, with Add notes, Recite, rename and delete.
 
+## Aria
+
+The assistant is **Aria**. Ask her "what can you do?", "who are you?" or "what's in my notes?" and she answers from
+what she can actually do and what is in your notebooks right now. Start a command with her name if you like
+("Aria, open my hash map notes"). When a new notes file appears (from an upload or another device) she mentions it
+and offers to recite it.
+

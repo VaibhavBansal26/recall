@@ -75,6 +75,21 @@ _END_SESSION = _rx(
     r"^\W*(?:good ?bye|bye(?: bye)?|that'?s all(?: for (?:today|now))?|we'?re done|"
     r"i'?m done for (?:today|now)|see you(?: later| soon)?|talk to you later)\W*$"
 )
+# Questions about Aria herself or the learner's library. Whole-sentence, and checked before the
+# generic "what are ..." explain rule so "what are you able to do" is not an explanation of "you".
+_ABOUT = _rx(
+    r"^\W*(?:(?:ok(?:ay)?|hey|so)[, ]+)*"
+    r"(?:who are you|what(?:'s| is) your name|what are you|what can you do|what do you do|"
+    r"what are you (?:able|capable) (?:to do|of)|what can i (?:ask|say|do)|how do you work|"
+    r"how does this work|"
+    r"tell me about yourself|introduce yourself|"
+    r"what are your (?:features|abilities|skills|commands)|"
+    r"help(?: me)?|what do you know(?: about me| about my notes)?|"
+    r"what(?:'s| is) in my (?:notes|library|notebooks)|what notes do i have|"
+    r"what notebooks do i have|"
+    r"list my notebooks|what have i (?:got|saved|made)|what are my notebooks)\W*$"
+)
+_ADDRESS = _rx(r"^\W*aria\b[,.!:;]?\s*")
 _BRIEF = _rx(r"\b(daily|morning) brief(ing)?\b|\bmy brief\b|\bstart (the |my )?brief\b")
 _INGEST_START = _rx(
     r"\b(what did you (file|add)|what'?s new|any new (material|sources?|notes)|"
@@ -124,6 +139,11 @@ def _clean_topic(topic: str | None, *, strip_work: bool = True) -> str | None:
 
 def route_by_rules(text: str, current: Mode) -> Route | None:
     """A decisive route from the words alone, or None when the rules cannot tell."""
+    addressed = _ADDRESS.sub("", text, count=1)  # "Aria, open my notes" is the same command
+    if addressed != text:
+        if not addressed.strip():
+            return Route(Mode.chitchat, command="about")  # just her name: she is listening
+        text = addressed
     if current == Mode.recall_quiz:
         for command, pattern in _QUIZ_COMMANDS:
             if pattern.search(text) and len(text.split()) <= 8:
@@ -155,6 +175,8 @@ def route_by_rules(text: str, current: Mode) -> Route | None:
         return Route(Mode.discuss, command=followup or "turn")
     if _END_SESSION.search(text):
         return Route(Mode.chitchat, command="end_session")
+    if _ABOUT.search(text):
+        return Route(Mode.chitchat, command="about")
     if discuss := commands.parse_discuss(text):
         return Route(Mode.discuss, topic=discuss.topic, command="start", track=discuss.track)
     if nb := commands.parse_notebook(text):

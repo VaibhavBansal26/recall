@@ -311,8 +311,8 @@ export function SessionView({
           {s.utterances.length === 0 && !s.partial && !s.assistantDraft ? (
             <p className="opacity-60">
               {s.audioInput
-                ? "Open the mic or hold the talk button and start explaining."
-                : "Type a message. Try “explain RAG”, “read me my notes on RAG”, or “quiz me”."}
+                ? "Say hi to Aria. Open the mic or hold the talk button and start explaining."
+                : "Type to Aria. Try “what can you do?”, “explain RAG”, “read me my notes on RAG”, or “quiz me”."}
             </p>
           ) : null}
           <TranscriptStream

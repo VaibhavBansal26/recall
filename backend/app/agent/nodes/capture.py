@@ -3,6 +3,7 @@
 import logging
 from collections.abc import AsyncIterator
 
+from app.agent import persona
 from app.agent.deps import AgentDeps
 from app.agent.prompts import load_prompt
 from app.agent.schemas import ExtractedNotes
@@ -15,15 +16,19 @@ from app.tracks import guidance_for
 log = logging.getLogger(__name__)
 
 
-def ack_stream(deps: AgentDeps, state: AgentState) -> AsyncIterator[str]:
+async def ack_stream(deps: AgentDeps, state: AgentState) -> AsyncIterator[str]:
     """The spoken side of a capture turn: a brief acknowledgement, never an interruption."""
-    return deps.llm.stream_text(
+    system = await persona.system_for(
+        deps, load_prompt("capture_ack").text, track=state.track, notebook_id=state.notebook_id
+    )
+    async for token in deps.llm.stream_text(
         "fast",
-        system=load_prompt("capture_ack").text,
+        system=system,
         user=state.user_text,
         session_id=state.session_id,
         purpose="ack",
-    )
+    ):
+        yield token
 
 
 def capture_item(event: CaptureEvent, note: Note) -> CaptureItem:

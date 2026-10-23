@@ -45,6 +45,7 @@ from app.services import briefs as briefs_svc
 from app.services import confusion as confusion_svc
 from app.services import diagrams as diagram_svc
 from app.services import ingest as ingest_svc
+from app.services import library as library_svc
 from app.services import notebooks as notebooks_svc
 from app.services import notes as notes_svc
 from app.services import retrieval
@@ -140,6 +141,9 @@ class _Connection:
         self.notebook_id: uuid.UUID | None = None  # new notes are filed here
         self.notebook_name: str | None = None
         self.recite_resume = False  # after each recitation question, carry on to the next note
+        # Notebooks this connection knows about; a new one (another device, an upload) is announced.
+        self.seen_notebooks: set[uuid.UUID] = set()
+        self.heads_up: str = ""
         self.speed: float = 1.0
         self.active_note_id: uuid.UUID | None = None  # last note we explained/read/quizzed
         self.last_topic: str | None = None
@@ -174,6 +178,9 @@ class _Connection:
         self.mode, self.quiz, self.readback, self.speed = Mode.capture, None, None, 1.0
         self.discuss, self.notebook_id, self.notebook_name = None, None, None
         self.recite_resume = False
+        self.heads_up = ""
+        async with self.deps.sessionmaker() as db:
+            self.seen_notebooks = await library_svc.all_notebook_ids(db)
         self.active_note_id = self.last_topic = None
         if self.voice.audio_input:
             try:
@@ -260,6 +267,10 @@ class _Connection:
         )
         previous = self.window[-1] if self.window else None
         self.window.append(text)
+        if self._in_recitation() and commands.is_side_question(text):
+            await self._answer_in_recitation(text, latency)
+            return
+        await self._notice_new_notebooks()
 
         trigger = self.confusion.check(text)
         route = await route_turn(self.deps.llm, text, self.mode, self.session_id)
@@ -304,7 +315,15 @@ class _Connection:
         elif route.mode == Mode.chitchat:
             await self._set_mode(Mode.capture)
             self._start_reply(
-                chitchat_stream(self.deps, state.session_id, state.user_text), latency
+                chitchat_stream(
+                    self.deps,
+                    state.session_id,
+                    state.user_text,
+                    track=self.track,
+                    notebook_id=self.notebook_id,
+                    about=route.command == "about",
+                ),
+                latency,
             )
         else:  # capture
             if self.mode != Mode.capture:
@@ -702,6 +721,43 @@ class _Connection:
         step = await read_back_node.read_current(self.deps, rb, self.session_id)
         await self._deliver_read_step(step, rb, latency, prefix=f"{prefix} Next. ")
 
+    def _in_recitation(self) -> bool:
+        """Reading notes aloud, or between a recitation's check questions."""
+        if self.mode == Mode.read_back and self.readback is not None:
+            return True
+        return self.mode == Mode.recall_quiz and self.recite_resume
+
+    async def _answer_in_recitation(self, question: str, latency: TurnLatency) -> None:
+        """The learner asks something mid-recitation: answer it, then pick the recitation back up
+        exactly where it was (the check question again, or "say next")."""
+        assert self.session_id is not None
+        note = None
+        async with self.deps.sessionmaker() as db:
+            if self.active_note_id is not None:
+                note = await notes_svc.get_note(db, self.active_note_id)
+        pending = None
+        resume = " Say next when you're ready, or ask me anything else."
+        if self.mode == Mode.recall_quiz and self.quiz is not None:
+            pending = await self.quiz.current_prompt()
+            if pending:
+                resume = f" Back to the question. {pending}"
+
+        async def reply() -> AsyncIterator[str]:
+            assert self.session_id is not None
+            async for token in read_back_node.answer_stream(
+                self.deps,
+                session_id=self.session_id,
+                track=self.track,
+                notebook_id=self.notebook_id,
+                question=question,
+                note=note,
+                pending=pending,
+            ):
+                yield token
+            yield resume
+
+        self._start_reply(reply(), latency)
+
     async def _stop_recite(self, latency: TurnLatency) -> None:
         await self._set_mode(Mode.capture)
         self._start_reply(_once("Okay, stopping the recitation."), latency)
@@ -880,6 +936,20 @@ class _Connection:
             "Say recite to hear them explained."
         )
 
+    # ---- Aria notices new files ----
+
+    async def _notice_new_notebooks(self) -> None:
+        """A notebook this connection did not make (another device, an upload, n8n) has appeared:
+        queue a short spoken heads-up for the end of her next reply. Not while in a quiz or
+        discussion; it waits until you are back to plain note-taking."""
+        if self.mode != Mode.capture or self.heads_up:
+            return
+        async with self.deps.sessionmaker() as db:
+            fresh = await library_svc.notebooks_not_in(db, self.seen_notebooks)
+        if fresh:
+            self.seen_notebooks.update(n.id for n in fresh)
+            self.heads_up = library_svc.heads_up(fresh)
+
     # ---- notebooks: named files of notes inside a track ----
 
     async def _switch_track(self, slug: str | None) -> bool:
@@ -915,6 +985,7 @@ class _Connection:
         async with self.deps.sessionmaker() as db:
             count = await notebooks_svc.count_notes(db, book.id)
         self.notebook_id, self.notebook_name = book.id, book.name
+        self.seen_notebooks.add(book.id)
         await self.out.send(
             NotebookEvent(
                 notebook_id=book.id,
@@ -961,6 +1032,7 @@ class _Connection:
             if command == "notebook_new":
                 made = [await notebooks_svc.get_or_create(db, track, n) for n in route.names]
                 books = [b for b, _ in made]
+                self.seen_notebooks.update(b.id for b in books)
                 first: Notebook | None = made[0][0]
                 first_created = made[0][1]
                 new_names = [b.name for b, created in made if created]
@@ -1273,6 +1345,9 @@ class _Connection:
                     await speak(sentence)
             if (tail := chunker.flush()) is not None:
                 await speak(tail)
+            if self.heads_up and self.mode == Mode.capture:
+                note, self.heads_up = self.heads_up, ""
+                await speak(note)  # Aria noticed something new in the library
             async with self.deps.sessionmaker() as db:
                 stored = await svc.add_utterance(
                     db, self.session_id, Speaker.assistant, " ".join(spoken)

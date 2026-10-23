@@ -9,6 +9,7 @@ import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
+from app.agent import persona
 from app.agent.deps import AgentDeps
 from app.agent.prompts import load_prompt
 from app.agent.schemas import DiscussionSummary
@@ -50,9 +51,15 @@ async def stream_turn(
     if learner_text:
         ds.history.append(("learner", learner_text))
     spoken: list[str] = []
+    system = await persona.system_for(
+        deps,
+        load_prompt("discuss_turn").text + guidance_for(track, "explain"),
+        track=track,
+        notebook_id=ds.notebook_id,
+    )
     async for token in deps.llm.stream_text(
         "fast",
-        system=load_prompt("discuss_turn").text + guidance_for(track, "explain"),
+        system=system,
         user=user,
         session_id=session_id,
         purpose="discuss",

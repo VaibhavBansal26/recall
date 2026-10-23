@@ -3,6 +3,7 @@
 import uuid
 from collections.abc import AsyncIterator
 
+from app.agent import persona
 from app.agent.deps import AgentDeps
 from app.agent.prompts import load_prompt
 from app.db.models import DiagramKind, Note
@@ -27,7 +28,7 @@ def _user_message(topic: str, note: Note | None) -> str:
     return message
 
 
-def explain_stream(
+async def explain_stream(
     deps: AgentDeps,
     *,
     session_id: uuid.UUID,
@@ -38,13 +39,17 @@ def explain_stream(
 ) -> AsyncIterator[str]:
     """Spoken explanation tokens. `simple` is the "I don't get it" version (rule 4)."""
     name = "explain_simple" if simple else "explain"
-    return deps.llm.stream_text(
+    system = await persona.system_for(
+        deps, load_prompt(name).text + guidance_for(track, "explain"), track=track
+    )
+    async for token in deps.llm.stream_text(
         "fast",
-        system=load_prompt(name).text + guidance_for(track, "explain"),
+        system=system,
         user=_user_message(topic, note),
         session_id=session_id,
         purpose=name,
-    )
+    ):
+        yield token
 
 
 async def explain_diagram(

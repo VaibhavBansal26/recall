@@ -41,7 +41,9 @@ export function VoiceOrb({ state }: { state: OrbState }) {
           className={`absolute inset-0 h-24 w-24 rounded-full object-cover ring-4 transition-colors ${s.core}`}
         />
       </div>
-      <span className="text-xs opacity-70">{s.label}</span>
+      <span className="text-xs opacity-70">
+        <strong className="font-medium">Aria</strong> · {s.label}
+      </span>
     </div>
   );
 }

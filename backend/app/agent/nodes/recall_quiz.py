@@ -131,6 +131,11 @@ class QuizSession:
         turn = await self._turn(item, "", step.tier)
         return await self._after_step(item, step, turn.spoken_hint)
 
+    async def current_prompt(self) -> str | None:
+        """The question on the table, as it was spoken (to return to it after a side question)."""
+        item = await self._current_item()
+        return _speakable_prompt(item) if item is not None else None
+
     async def skip(self) -> QuizStep:
         """Move on without grading (the item stays due)."""
         return await self._ask_next(lead="Okay, skipping. ")

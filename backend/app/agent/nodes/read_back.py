@@ -1,8 +1,10 @@
 """Read-back: read the learner's notes aloud in learning order, one at a time, with a question."""
 
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
+from app.agent import persona
 from app.agent.deps import AgentDeps
 from app.agent.prompts import load_prompt
 from app.agent.schemas import ReciteExplain, WhyMatters
@@ -185,3 +187,31 @@ def stop(rb: ReadBackSession, spoken: str = "Okay, stopping there.") -> ReadBack
 def change_speed(rb: ReadBackSession, command: str) -> None:
     delta = -SPEED_STEP if command == "slower" else SPEED_STEP
     rb.speed = round(min(MAX_SPEED, max(MIN_SPEED, rb.speed + delta)), 2)
+
+
+async def answer_stream(
+    deps: AgentDeps,
+    *,
+    session_id: uuid.UUID,
+    track: str,
+    notebook_id: uuid.UUID | None,
+    question: str,
+    note: Note | None,
+    pending: str | None,
+) -> AsyncIterator[str]:
+    """A short spoken answer to a question asked in the middle of a recitation."""
+    system = await persona.system_for(
+        deps,
+        load_prompt("recite_answer").text + guidance_for(track, "explain"),
+        track=track,
+        notebook_id=notebook_id,
+    )
+    user = f"QUESTION: {question}\n"
+    if note is not None:
+        user += f"CURRENT NOTE: {note.title}. {note.body_md}\n"
+    if pending:
+        user += f"PENDING CHECK QUESTION: {pending}\n"
+    async for token in deps.llm.stream_text(
+        "fast", system=system, user=user, session_id=session_id, purpose="recite_answer"
+    ):
+        yield token
