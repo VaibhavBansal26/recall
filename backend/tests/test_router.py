@@ -2,7 +2,8 @@ import asyncio
 
 import pytest
 
-from app.agent.router import Mode, Route, RouteDecision, route_by_rules, route_turn
+from app.agent.router import Mode, Route, route_by_rules, route_turn
+from app.agent.schemas import Intent
 from tests.helpers import ScriptedLLM
 
 
@@ -84,7 +85,7 @@ def test_an_unmatched_statement_never_calls_the_llm() -> None:
 
 
 def test_an_ambiguous_question_falls_back_to_the_fast_model() -> None:
-    llm = ScriptedLLM(RouteDecision(mode=Mode.explain, topic="attention"))
+    llm = ScriptedLLM(Intent(intent="explain", topic="attention"))
     route = asyncio.run(
         route_turn(llm, "so is attention the thing that weights tokens?", Mode.capture)
     )
@@ -93,12 +94,12 @@ def test_an_ambiguous_question_falls_back_to_the_fast_model() -> None:
 
 
 def test_the_llm_router_can_start_teach_back() -> None:
-    llm = ScriptedLLM(RouteDecision(mode=Mode.teach_back))
+    llm = ScriptedLLM(Intent(intent="teach_back"))
     route = asyncio.run(route_turn(llm, "is this right?", Mode.capture))
     assert route == Route(Mode.teach_back, command="start")
 
 
 def test_a_question_the_router_calls_a_note_is_answered_conversationally_instead() -> None:
-    llm = ScriptedLLM(RouteDecision(mode=Mode.capture))
+    llm = ScriptedLLM(Intent(intent="none"))
     route = asyncio.run(route_turn(llm, "can you do my taxes for me?", Mode.capture))
     assert route == Route(Mode.chitchat)

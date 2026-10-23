@@ -150,6 +150,7 @@ _DRAW = _rx(
 _FILLERS = _rx(r"(?:^|(?<=\W))(?:uh+|um+|erm*|hmm+|mm+)\b[,.]?\s*")
 _SPELLED_DSA = _rx(r"\b(?:tsa|d\.?\s?s\.?\s?a\.?)(?=\W|$)")
 _CAN_YOU = _rx(r"\b(?:can|could) you\b")
+_POLITE_TAIL = _rx(r"[, ]+(?:please|thanks|thank you|for me)\W*$")
 
 
 def normalize(text: str) -> str:
@@ -161,6 +162,7 @@ def normalize(text: str) -> str:
     starts = [m.start() for m in _CAN_YOU.finditer(text)]
     if len(starts) >= 2:
         text = text[starts[-1] :]
+    text = _POLITE_TAIL.sub("", text)
     return re.sub(r"\s{2,}", " ", text).strip()
 
 

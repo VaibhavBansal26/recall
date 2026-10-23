@@ -7,12 +7,12 @@ Only an unmatched question falls back to the fast model; everything else is capt
 import enum
 import re
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-
-from pydantic import BaseModel
 
 from app.agent import commands
 from app.agent.prompts import load_prompt
+from app.agent.schemas import Intent
 from app.llm.client import LLMClient
 
 
@@ -35,11 +35,6 @@ class Route:
     track: str | None = None  # switch to this track first (spoken "under dsa")
     names: tuple[str, ...] = ()  # notebook names
     draft: bool = False  # also write starter notes on the topic
-
-
-class RouteDecision(BaseModel):
-    mode: Mode
-    topic: str | None = None
 
 
 def _rx(pattern: str) -> re.Pattern[str]:
@@ -246,25 +241,123 @@ def route_by_rules(text: str, current: Mode) -> Route | None:
     return None
 
 
+# Words that make a sentence worth understanding with the model. Checked near the start only, so a
+# note like "hash maps make lookups fast" is not sent: thinking aloud stays instant.
+_REQUEST_OPENERS = _rx(
+    r"^\W*(?:(?:ok(?:ay)?|alright|so|now|hey|please|and|well|actually|aria)[, ]+)*"
+    r"(?:can|could|would|will|shall)\s+(?:you|we|i)\b|"
+    r"^\W*(?:(?:ok(?:ay)?|alright|so|now|hey|please|and|well|actually|aria)[, ]+)*"
+    r"(?:please|let'?s|lets|let us|i (?:want|need|would like|would love|wanna)|i'?d (?:like|love)|"
+    r"it would be (?:great|nice|good)|go ahead|"
+    r"start|begin|create|make|build|set|open|close|write|draft|show|draw|read|recite|explain|"
+    r"tell|teach|test|quiz|evaluate|assess|check|stop|end|finish|switch|go|add|put|remember|"
+    r"summari[sz]e|help|what|who|how|why|where|when|which|is there|are there|do you|are you|"
+    r"did you|have you|i'?m ready|ready)\b"
+)
+
+
+def wants_intent(text: str) -> bool:
+    """Does this sound like a request to Aria (so it is worth a model call), rather than the
+    learner thinking out loud (which stays instant)?"""
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if len(stripped.split()) > 45:
+        return False  # a long monologue is an explanation, not a command
+    return (
+        stripped.endswith("?")
+        or bool(_REQUEST_OPENERS.match(stripped))
+        or bool(
+            re.search(
+                r"\b(?:can|could|would) you\b|\byou (?:could|can|would|should|might)\b|"
+                r"\bi (?:want|need|'d like|would like) you to\b",
+                stripped,
+                re.I,
+            )
+        )
+    )
+
+
+def route_from_intent(intent: Intent) -> Route | None:
+    """Turn what the model understood into a route. None means "just keep listening"."""
+    name = intent.intent
+    names = tuple(n.strip() for n in intent.names if n.strip())
+    topic = (intent.topic or "").strip() or None
+    track = intent.track
+    if name == "none":
+        return None
+    if name == "create_notebook":
+        if not names and topic:
+            names = (topic,)
+        if not names:
+            return Route(
+                Mode.chitchat, command="clarify", topic="What should I call the notes file?"
+            )
+        return Route(
+            Mode.capture, command="notebook_new", names=names, track=track, draft=intent.write_notes
+        )
+    if name == "open_notebook":
+        if not names and topic:
+            names = (topic,)
+        if not names:
+            return Route(Mode.chitchat, command="clarify", topic="Which notes file should I open?")
+        return Route(Mode.capture, command="notebook_open", names=names, track=track)
+    if name == "close_notebook":
+        return Route(Mode.capture, command="notebook_close")
+    if name == "write_notes":
+        return Route(Mode.capture, command="notebook_draft", names=names or (), track=track)
+    if name == "discuss":
+        return Route(Mode.discuss, topic=topic, command="start", track=track or "solutions")
+    if name == "recite":
+        return Route(Mode.read_back, topic=topic, command="recite", track=track)
+    if name == "read_back":
+        return Route(Mode.read_back, topic=topic, command="start", track=track)
+    if name == "quiz":
+        return Route(Mode.recall_quiz, topic=topic, command="start")
+    if name == "evaluate":
+        return Route(Mode.teach_back, topic=topic, command="start_eval")
+    if name == "teach_back":
+        return Route(Mode.teach_back, topic=topic, command="start")
+    if name == "explain":
+        return Route(Mode.explain, topic=_clean_topic(topic)) if topic else None
+    if name == "draw":
+        return Route(Mode.capture, command="draw")
+    if name == "end_session":
+        return Route(Mode.chitchat, command="end_session")
+    if name == "about":
+        return Route(Mode.chitchat, command="about")
+    if name == "review_source":
+        return Route(Mode.ingest_review, command="start")
+    if name == "unclear":
+        question = intent.clarify.strip() or "Sorry, could you say that another way?"
+        return Route(Mode.chitchat, command="clarify", topic=question)
+    return None
+
+
 async def route_turn(
-    llm: LLMClient, text: str, current: Mode, session_id: uuid.UUID | None = None
+    llm: LLMClient,
+    text: str,
+    current: Mode,
+    session_id: uuid.UUID | None = None,
+    context_fn: Callable[[], Awaitable[str]] | None = None,
 ) -> Route:
+    """Fast exact rules first. Anything that sounds like a request is then understood by the model,
+    so Aria follows what was meant, not just the phrases the rules happen to know."""
     route = route_by_rules(text, current)
     if route is not None:
         return route
-    if not text.strip().endswith("?"):
+    if not wants_intent(text):
         return Route(Mode.capture)  # the common case: the learner is explaining, keep listening
-    decision = await llm.complete_structured(
+    context = await context_fn() if context_fn else ""
+    intent = await llm.complete_structured(
         "fast",
-        system=load_prompt("router").text,
-        user=text,
-        schema=RouteDecision,
+        system=load_prompt("intent").text,
+        user=f"CONTEXT:\n{context}\n\nLEARNER SAID:\n{commands.normalize(text)}",
+        schema=Intent,
         session_id=session_id,
     )
-    if decision.mode == Mode.capture:
-        # A question is never a note. Answer it as Aria, who knows what she can and cannot do,
-        # instead of "keep going".
-        return Route(Mode.chitchat)
-    if decision.mode == Mode.teach_back:  # a start request needs a topic to listen for
-        return Route(Mode.teach_back, topic=decision.topic, command="start")
-    return Route(decision.mode, topic=decision.topic)
+    understood = route_from_intent(intent)
+    if understood is not None:
+        return understood
+    # Not a request. A question is never a note: answer it as Aria; a statement is kept as a note.
+    return Route(Mode.chitchat) if text.strip().endswith("?") else Route(Mode.capture)

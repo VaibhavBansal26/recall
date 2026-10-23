@@ -2,6 +2,25 @@
 
 Newest first. Anything that differs from `CLAUDE.md` goes here with the reason.
 
+## Understanding requests by meaning, not exact phrases
+
+- **The first version matched fixed phrases**, so "build a node for binary search" or "let's stop the
+  conversation" were missed. That was the wrong trade-off for a voice assistant. Now: exact rules still run
+  first (instant, free), but any sentence that **sounds like a request to her** (starts like one, is a
+  question, or says "you could/can/would") goes to a model (`Intent`, `prompts/intent.md`) that picks what
+  was meant from 16 intents and fills in names, topic and track. It is told the notebooks in the library,
+  the open notebook and the track so "my binary one" resolves to a real notebook.
+- **Thinking aloud stays instant.** Plain statements ("hash maps make lookups fast") and long monologues
+  are not sent to the model, so note-taking has no extra latency. A request costs one fast-model call
+  (typically a few hundred ms) before she answers.
+- **When it is unsure she asks** ("Did you want me to make a notes file called heaps?") instead of
+  guessing or filing it as a note. A question is never filed as a note.
+- **Sticky modes (quiz, recitation, discussion, teach-back) are unchanged**: their control words are rules
+  so answers are not slowed down.
+- The test stand-in for the model is a loose keyword matcher, only to exercise the plumbing. How well the
+  real model understands is unmeasured until it runs on your keys; if she misreads a sentence, that exact
+  sentence is a useful example to add to the prompt.
+
 ## Evaluating against your own notes or PDF
 
 - **"Evaluate me on binary search" / "test my understanding of RAG" / "check my explanation against my

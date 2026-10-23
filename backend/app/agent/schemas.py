@@ -162,3 +162,32 @@ class AccuracyCheck(BaseModel):
     missed: list[str] = Field(default_factory=list)
     contradicted: list[Contradiction] = Field(default_factory=list)
     verdict: str = ""
+
+
+class Intent(BaseModel):
+    """What the learner just asked for, understood from meaning rather than exact words."""
+
+    intent: Literal[
+        "none",
+        "create_notebook",
+        "open_notebook",
+        "close_notebook",
+        "write_notes",
+        "discuss",
+        "recite",
+        "read_back",
+        "quiz",
+        "evaluate",
+        "teach_back",
+        "explain",
+        "draw",
+        "end_session",
+        "about",
+        "review_source",
+        "unclear",
+    ] = "none"
+    topic: str | None = None
+    names: list[str] = Field(default_factory=list)
+    track: Literal["dsa", "ai-eng", "solutions", "english"] | None = None
+    write_notes: bool = False
+    clarify: str = ""

@@ -5,7 +5,6 @@ import re
 import uuid
 from collections.abc import AsyncIterator
 
-from app.agent.router import Mode, RouteDecision
 from app.agent.schemas import (
     AccuracyCheck,
     BeatCheck,
@@ -14,6 +13,7 @@ from app.agent.schemas import (
     DiscussionSummary,
     DraftedNotes,
     ExtractedNotes,
+    Intent,
     LinkProposal,
     LinkProposals,
     MergeResult,
@@ -39,6 +39,55 @@ def _field(user: str, key: str) -> str:
     """Value of a `KEY: value` field in a multi-line prompt (up to the next ALL-CAPS key)."""
     m = re.search(rf"^{re.escape(key)}:[ \t]*(.*?)(?=^[A-Z][A-Z ]+:|\Z)", user, re.S | re.M)
     return m.group(1).strip() if m else ""
+
+
+_FAKE_TRACKS = (
+    ("system design", "solutions"),
+    ("data structures", "dsa"),
+    ("algorithms", "dsa"),
+    ("dsa", "dsa"),
+    ("ai", "ai-eng"),
+    ("english", "english"),
+)
+
+
+def _fake_intent(user: str) -> Intent:
+    """A loose keyword stand-in for the model's understanding, so the plumbing is testable. A real
+    model judges meaning; this only needs to differ from the exact-phrase rules."""
+    said = user.split("LEARNER SAID:\n", 1)[-1].strip()
+    low = said.lower()
+    track = next((slug for word, slug in _FAKE_TRACKS if re.search(rf"\b{word}\b", low)), None)
+    topic_match = re.search(
+        r"\b(?:for|on|about|called|named|of)\s+(.+?)(?:\s+(?:in|under|inside)\s+\w[\w ]*)?[.?!]*$",
+        low,
+    )
+    topic = topic_match.group(1).strip() if topic_match else None
+    if re.search(r"\b(?:evaluate|assess|how well do i know)\b", low):
+        return Intent(intent="evaluate", topic=topic)
+    if re.search(r"\b(?:write|draft|generate)\b.*\bnotes?\b", low):
+        return Intent(intent="write_notes", names=[topic] if topic else [], track=track)
+    if re.search(r"\b(?:notebook|notes? file|file|folder|place)\b", low) and re.search(
+        r"\b(?:set|make|create|build|need|put|start|open a new)\b", low
+    ):
+        return Intent(
+            intent="create_notebook", names=[topic] if topic else [], track=track,
+            write_notes=bool(re.search(r"\bwrite\b", low)),
+        )  # fmt: skip
+    if re.search(r"\b(?:discuss|work through|talk through)\b", low):
+        return Intent(intent="discuss", topic=topic)
+    if re.search(r"\b(?:recite|go over|walk me through)\b", low):
+        return Intent(intent="recite", topic=topic)
+    if re.search(r"\b(?:quiz|test me)\b", low):
+        return Intent(intent="quiz", topic=topic)
+    if re.search(r"\b(?:stop|finish|done talking|goodbye)\b", low):
+        return Intent(intent="end_session")
+    if re.search(r"\b(?:who are you|what can you do|what do you do)\b", low):
+        return Intent(intent="about")
+    if re.search(r"\b(?:explain|how does|how do)\b", low):
+        return Intent(intent="explain", topic=topic or low)
+    if re.search(r"\bmaybe\b.*\bnotes?\b", low):
+        return Intent(intent="unclear", clarify="Did you want me to make a notes file?")
+    return Intent(intent="none")
 
 
 def _content_words(text: str) -> set[str]:
@@ -284,8 +333,8 @@ class FakeLLM(LLMClient):
                     line="This matters because it connects to the rest of what you know."
                 ).model_dump()
             )
-        if schema is RouteDecision:
-            return schema.model_validate(RouteDecision(mode=Mode.capture).model_dump())
+        if schema is Intent:
+            return schema.model_validate(_fake_intent(user).model_dump())
         if schema is DiagramDraft and user.startswith("TOPIC:"):
             topic = _field(user, "TOPIC")
             lines = ["flowchart TD", f'    T["{_q(topic)}"]']

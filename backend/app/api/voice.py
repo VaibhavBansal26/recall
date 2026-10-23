@@ -276,7 +276,9 @@ class _Connection:
         await self._notice_new_notebooks()
 
         trigger = self.confusion.check(text)
-        route = await route_turn(self.deps.llm, text, self.mode, self.session_id)
+        route = await route_turn(
+            self.deps.llm, text, self.mode, self.session_id, context_fn=self._intent_context
+        )
 
         if self.mode == Mode.recall_quiz and trigger and trigger.startswith("phrase"):
             # In a quiz, "I don't get it" climbs the hint ladder instead of leaving the quiz.
@@ -311,6 +313,10 @@ class _Connection:
             await self._handle_notebook(route, latency)
         elif route.command == "draw":
             await self._draw_overview(latency)
+        elif route.mode == Mode.chitchat and route.command == "clarify":
+            self._start_reply(
+                _once(route.topic or "Sorry, could you say that another way?"), latency
+            )
         elif route.mode == Mode.chitchat and route.command == "end_session":
             await self._set_mode(Mode.capture)
             await self.out.send(SessionEndEvent())  # the client closes the mic
@@ -960,6 +966,12 @@ class _Connection:
             f"{headline[:-1]}{about}.{sample}{filed} Shall I keep them? "
             "Say recite to hear them explained."
         )
+
+    async def _intent_context(self) -> str:
+        """What the model needs to follow a request: the track, open notebook and library."""
+        async with self.deps.sessionmaker() as db:
+            snap = await library_svc.snapshot(db, self.track, self.notebook_id)
+        return f"Mode: {self.mode.value}.\n{snap.render()}"
 
     # ---- Aria notices new files ----
 
