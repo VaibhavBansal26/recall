@@ -2,6 +2,22 @@
 
 Newest first. Anything that differs from `CLAUDE.md` goes here with the reason.
 
+## Evaluating against your own notes or PDF
+
+- **"Evaluate me on binary search" / "test my understanding of RAG" / "check my explanation against my
+  notes"** is a teach-back that is also checked against **your own material**: the notes in the notebook
+  (or a search of the track), plus, when the notebook was built from a PDF or link, the most relevant
+  passages of that source. You explain out loud, say "I'm done", and she says what you covered, what you
+  did not mention, and anything that conflicts with the reference. The Session page has a checkbox for it.
+- **Judged only against your reference, not the internet.** The checker is told not to use outside
+  knowledge to mark something wrong. A "conflict" only counts if the quoted words were really said
+  (same honesty rule as the articulation scoring). If there are no notes on the topic she says so and scores
+  only how you explained it.
+- Known limits: it checks one spoken explanation, not a design or a whole notebook; long sources are
+  sampled (five passages), so a point from an unsampled page can show as "not mentioned"; and the check is a
+  model's judgment, so treat a flagged conflict as "go look", not a verdict. The system-design
+  discussion wrap-up still evaluates from your discussion notes, not against a PDF.
+
 ## Speech fixes and "write the notes" (from a live session)
 
 - **Real speech is messy**, so rules run on normalised text: "uh/um" dropped, "TSA" / "D S A" read as DSA,

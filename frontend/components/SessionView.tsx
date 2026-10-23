@@ -262,9 +262,9 @@ export function SessionView({
             ? "listening"
             : "idle";
 
-  function startTeachBack(topic: string | null) {
+  function startTeachBack(topic: string | null, evaluate: boolean) {
     void player.current.unlock();
-    socket.current?.send({ type: "teachback_start", topic });
+    socket.current?.send({ type: "teachback_start", topic, evaluate });
   }
 
   const showLadder = variant === "review" || s.quiz !== null;

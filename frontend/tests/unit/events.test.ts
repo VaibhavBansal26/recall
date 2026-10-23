@@ -232,6 +232,8 @@ describe("teach-back events", () => {
     to_fix: "",
     suggestions: [],
     rewrite: null,
+    accuracy: null,
+    checking: "",
   };
 
   it("shows the live word count while listening", () => {
@@ -284,5 +286,45 @@ describe("notebooks", () => {
     const moved = reduceEvent(opened, { type: "session", session_id: "s2", track: "solutions", audio_input: false });
     expect(moved.notebook).toBeNull();
     expect(moved.track).toBe("solutions");
+  });
+});
+
+describe("evaluating against notes", () => {
+  it("keeps what the answer was checked against and the accuracy result", () => {
+    const base = {
+      type: "teachback" as const,
+      topic: "binary search",
+      words: 30,
+      ideas: [],
+      metrics: null,
+      beats: null,
+      clarity: 70,
+      structure: 75,
+      clarity_reason: "",
+      well_done: "",
+      to_fix: "",
+      suggestions: [],
+      rewrite: null,
+    };
+    const listening = reduceEvent(initialViewState, {
+      ...base,
+      phase: "listening",
+      accuracy: null,
+      checking: "your notes (Binary search)",
+    });
+    expect(listening.teachBack?.checking).toBe("your notes (Binary search)");
+    const scored = reduceEvent(listening, {
+      ...base,
+      phase: "scored",
+      checking: "",
+      accuracy: {
+        against: "your notes (Binary search)",
+        covered: ["halving the range"],
+        missed: ["sorted input"],
+        contradicted: [],
+        verdict: "",
+      },
+    });
+    expect(scored.teachBack?.accuracy?.missed).toEqual(["sorted input"]);
   });
 });

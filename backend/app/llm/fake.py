@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 
 from app.agent.router import Mode, RouteDecision
 from app.agent.schemas import (
+    AccuracyCheck,
     BeatCheck,
     CandidateNote,
     DiagramDraft,
@@ -213,6 +214,25 @@ class FakeLLM(LLMClient):
             return schema.model_validate(
                 WalkthroughDraft(
                     applicable=True, array=["1", "3", "5", "7", "9", "11"], steps=walk_steps
+                ).model_dump()
+            )
+        if schema is AccuracyCheck:
+            reference = user.split("REFERENCE:\n", 1)[-1].split("\n\nLEARNER SAID:", 1)[0]
+            said = user.split("LEARNER SAID:\n", 1)[-1].lower()
+            covered: list[str] = []
+            missed: list[str] = []
+            for line in reference.splitlines():
+                if not line.startswith("- "):
+                    continue
+                title = line[2:].split(":", 1)[0].strip()
+                words = [w for w in re.findall(r"[a-z]+", title.lower()) if len(w) >= 4]
+                hit = sum(1 for w in words if w in said)
+                (covered if words and hit * 2 >= len(words) else missed).append(title)
+            return schema.model_validate(
+                AccuracyCheck(
+                    covered=covered,
+                    missed=missed,
+                    verdict="That matches your notes in the main.",
                 ).model_dump()
             )
         if schema is DraftedNotes:

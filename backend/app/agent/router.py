@@ -93,6 +93,14 @@ _ABOUT = _rx(
     r"list my notebooks|what have i (?:got|saved|made)|what are my notebooks)\W*$"
 )
 _ADDRESS = _rx(r"^\W*aria\b[,.!:;]?\s*")
+# "evaluate me on binary search", "test my understanding of RAG", "check my explanation against my
+# notes": explain it out loud and have it checked against your notes or PDF.
+_EVALUATE = _rx(
+    r"^\W*(?:(?:ok(?:ay)?|please|now|so|can you|could you|aria)[, ]+)*"
+    r"(?:evaluate|assess|grade|check|test|quiz)\s+(?:me|my\s+(?:understanding|explanation|knowledge|answer))"
+    r"(?:\s+(?:on|about|of|for|against)\s+(?P<topic>.+?))?"
+    r"(?:\s+(?:against|using|with|from)\s+(?:my\s+|the\s+)?(?:notes?|pdf|notebook|source|document|file))?[.?!]?\s*$"
+)
 _BRIEF = _rx(r"\b(daily|morning) brief(ing)?\b|\bmy brief\b|\bstart (the |my )?brief\b")
 _INGEST_START = _rx(
     r"\b(what did you (file|add)|what'?s new|any new (material|sources?|notes)|"
@@ -140,6 +148,18 @@ def _clean_topic(topic: str | None, *, strip_work: bool = True) -> str | None:
     return re.sub(r"\s+works?$", "", topic.strip(), flags=re.IGNORECASE) or None
 
 
+def _strip_reference_words(topic: str) -> str:
+    """ "my notes on binary search" -> "binary search"; "my pdf" -> "" (the open notebook)."""
+    topic = topic.strip(" .,")
+    topic = re.sub(
+        r"^(?:my\s+|the\s+)?(?:notes?|pdf|notebook|source|document|file)\b\s*(?:on|about|for)?\s*",
+        "",
+        topic,
+        flags=re.IGNORECASE,
+    )
+    return topic.strip(" .,")
+
+
 def route_by_rules(text: str, current: Mode) -> Route | None:
     """A decisive route from the words alone, or None when the rules cannot tell."""
     text = commands.normalize(text)
@@ -181,6 +201,9 @@ def route_by_rules(text: str, current: Mode) -> Route | None:
         return Route(Mode.chitchat, command="end_session")
     if _ABOUT.search(text):
         return Route(Mode.chitchat, command="about")
+    if (m := _EVALUATE.match(text)) and not _QUIZ_START.search(text):
+        eval_topic = _clean_topic(_strip_reference_words(m.group("topic") or ""), strip_work=False)
+        return Route(Mode.teach_back, topic=eval_topic, command="start_eval")
     if discuss := commands.parse_discuss(text):
         return Route(Mode.discuss, topic=discuss.topic, command="start", track=discuss.track)
     if nb := commands.parse_notebook(text):

@@ -148,3 +148,17 @@ class DiscussionSummary(BaseModel):
 
 class ReciteExplain(BaseModel):
     text: str = Field(description="Two or three spoken sentences explaining the note")
+
+
+class Contradiction(BaseModel):
+    said: str = Field(description="A short quote copied exactly from what the learner said")
+    reference: str = Field(description="What the reference material says instead")
+
+
+class AccuracyCheck(BaseModel):
+    """How a spoken explanation lines up with the learner's own notes or source."""
+
+    covered: list[str] = Field(default_factory=list)
+    missed: list[str] = Field(default_factory=list)
+    contradicted: list[Contradiction] = Field(default_factory=list)
+    verdict: str = ""

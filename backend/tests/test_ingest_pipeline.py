@@ -704,3 +704,23 @@ def test_after_an_upload_you_can_say_recite_to_hear_it_explained(
         conv.kind("assistant_done")
         assert "I kept" in conv.spoken() and "In plain words" in conv.spoken()
     assert all(n["confirmed"] for n in client.get("/api/notes").json())
+
+
+def test_a_notebook_built_from_a_pdf_brings_the_source_text_into_the_reference(
+    client: TestClient, stub: StubFetcher
+) -> None:
+    from app.services import reference as reference_svc
+    from tests.helpers import run_db
+
+    ingest(client, stub)
+    deps = client.app.state.deps
+
+    async def go(db: Any, _: Any) -> Any:
+        return await reference_svc.gather(
+            db, deps.embedder, track_slug="ai-eng", topic="The Big RAG Guide"
+        )
+
+    ref = run_db(go)
+    assert ref.has_source and "SOURCE TEXT:" in ref.text
+    assert "The Big RAG Guide" in ref.about()
+    assert ref.about().startswith("your notes and ")

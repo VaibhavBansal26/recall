@@ -193,3 +193,9 @@ and offers to recite it.
   and Aria also writes 4 to 7 starter notes, marked as hers until you confirm them. Repeat for hash maps, two pointers, and so on.
 - "Write notes on hash maps" does the same in the current track. "Create a notes file for X" only makes the empty notebook.
 
+### Evaluate against your notes or PDF
+
+Say "evaluate me on binary search" (or tick "Also check it against my notes or PDF" in Teach-back). Explain it out loud and say
+"I'm done". Aria checks what you said against your own notes, and the PDF if the notebook came from one: what you covered, what you
+didn't mention, and anything that conflicts.
+

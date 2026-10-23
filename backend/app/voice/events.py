@@ -56,10 +56,12 @@ class QuizActionEvent(BaseModel):
 
 
 class TeachBackStartEvent(BaseModel):
-    """Begin a teach-back: the learner will explain `topic` out loud."""
+    """Begin a teach-back: the learner will explain `topic` out loud. With `evaluate`, the
+    explanation is also checked against their own notes and sources."""
 
     type: Literal["teachback_start"] = "teachback_start"
     topic: str | None = None
+    evaluate: bool = False
 
 
 class TeachBackDoneEvent(BaseModel):
@@ -220,6 +222,21 @@ class TeachBackRewrite(BaseModel):
     improved: str
 
 
+class TeachBackContradiction(BaseModel):
+    said: str
+    reference: str
+
+
+class TeachBackAccuracy(BaseModel):
+    """The explanation checked against the learner's own notes or source."""
+
+    against: str
+    covered: list[str] = []
+    missed: list[str] = []
+    contradicted: list[TeachBackContradiction] = []
+    verdict: str = ""
+
+
 class TeachBackEvent(BaseModel):
     """Teach-back progress and, once scored, the objective metrics plus structure scoring."""
 
@@ -237,6 +254,8 @@ class TeachBackEvent(BaseModel):
     to_fix: str = ""
     suggestions: list[str] = []
     rewrite: TeachBackRewrite | None = None
+    accuracy: TeachBackAccuracy | None = None
+    checking: str = ""  # while listening in evaluate mode: what the answer will be checked against
 
 
 class NotebookEvent(BaseModel):

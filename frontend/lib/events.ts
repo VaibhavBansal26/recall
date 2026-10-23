@@ -12,7 +12,7 @@ export type ClientEvent =
   | { type: "end_speech" }
   | { type: "quiz"; note_id?: string | null; brief_id?: string | null }
   | { type: "quiz_action"; action: "hint" | "forgot" | "skip" | "end" }
-  | { type: "teachback_start"; topic?: string | null }
+  | { type: "teachback_start"; topic?: string | null; evaluate?: boolean }
   | { type: "teachback_done"; cancel?: boolean }
   | { type: "notebook_open"; notebook_id: string | null }
   | { type: "recite_start"; notebook_id?: string | null }
@@ -60,6 +60,14 @@ export interface QuizSummary {
 
 export type TeachBackPhase = "listening" | "scoring" | "scored" | "too_short" | "cancelled";
 export type BeatName = "what" | "how" | "why" | "impact";
+
+export interface TeachBackAccuracy {
+  against: string;
+  covered: string[];
+  missed: string[];
+  contradicted: { said: string; reference: string }[];
+  verdict: string;
+}
 
 export interface TeachBackMetrics {
   word_count: number;
@@ -142,6 +150,8 @@ export type ServerEvent =
       to_fix: string;
       suggestions: string[];
       rewrite: { original: string; improved: string } | null;
+      accuracy: TeachBackAccuracy | null;
+      checking: string;
     }
   | { type: "confusion"; trigger: string; note_id: string | null }
   | { type: "mode"; mode: string }
@@ -253,6 +263,8 @@ export interface TeachBackView {
   toFix: string;
   suggestions: string[];
   rewrite: { original: string; improved: string } | null;
+  accuracy: TeachBackAccuracy | null;
+  checking: string;
 }
 
 /** The notebook new notes are filed into right now. */
@@ -508,6 +520,8 @@ export function reduceEvent(state: ViewState, event: ServerEvent): ViewState {
           toFix: event.to_fix,
           suggestions: event.suggestions,
           rewrite: event.rewrite,
+          accuracy: event.accuracy,
+          checking: event.checking,
         },
       };
     case "confusion":

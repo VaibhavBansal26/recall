@@ -28,7 +28,7 @@ const num = (v: number | null | undefined, digits = 0) =>
 interface Props {
   view: TeachBackView | null;
   ready: boolean;
-  onStart: (topic: string | null) => void;
+  onStart: (topic: string | null, evaluate: boolean) => void;
   onDone: () => void;
   onCancel: () => void;
   onClose: () => void;
@@ -36,6 +36,7 @@ interface Props {
 
 export function TeachBackPanel({ view, ready, onStart, onDone, onCancel, onClose }: Props) {
   const [topic, setTopic] = useState("");
+  const [evaluate, setEvaluate] = useState(false);
   const phase = view?.phase;
 
   if (!view || phase === "too_short") {
@@ -54,7 +55,7 @@ export function TeachBackPanel({ view, ready, onStart, onDone, onCancel, onClose
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            onStart(topic.trim() || null);
+            onStart(topic.trim() || null, evaluate);
             setTopic("");
           }}
           className="flex gap-2"
@@ -74,6 +75,15 @@ export function TeachBackPanel({ view, ready, onStart, onDone, onCancel, onClose
             Start
           </button>
         </form>
+        <label className="flex min-h-11 items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={evaluate}
+            onChange={(e) => setEvaluate(e.target.checked)}
+            className="h-5 w-5"
+          />
+          Also check it against my notes or PDF
+        </label>
       </section>
     );
   }
@@ -95,6 +105,11 @@ export function TeachBackPanel({ view, ready, onStart, onDone, onCancel, onClose
               Listening. <span data-testid="teachback-words">{view.words}</span> words so far. Say
               “I’m done” when you finish.
             </p>
+            {view.checking && (
+              <p data-testid="teachback-checking" className="text-xs opacity-70">
+                I’ll check it against {view.checking}.
+              </p>
+            )}
             {view.ideas.length > 0 && (
               <p className="text-xs opacity-60">Other ideas: {view.ideas.join(" · ")}</p>
             )}
@@ -135,6 +150,30 @@ export function TeachBackPanel({ view, ready, onStart, onDone, onCancel, onClose
           <Tile label="Fillers" value={`${num(m.filler_rate, 1)} per 100`} hint={`${m.filler_count} in ${m.word_count} words`} testid="metric-fillers" />
           <Tile label="Long pauses" value={String(m.long_pauses)} hint={m.long_pauses ? `Longest ${num(m.longest_pause_s, 1)} s` : "None over 1.5 s"} testid="metric-pauses" />
           <Tile label="Sentence length" value={`${num(m.sentences.mean, 1)} words`} hint={m.sentences.punctuated ? `Longest ${m.sentences.longest}` : "No sentence breaks found"} testid="metric-sentences" />
+        </div>
+      )}
+
+      {view.accuracy && (
+        <div data-testid="accuracy" className="flex flex-col gap-2 text-sm">
+          <h3 className="font-medium">Against {view.accuracy.against}</h3>
+          {view.accuracy.covered.length > 0 && (
+            <p>
+              <span aria-hidden="true">✓ </span>
+              <strong>Covered:</strong> {view.accuracy.covered.join("; ")}
+            </p>
+          )}
+          {view.accuracy.contradicted.map((c) => (
+            <p key={c.said} className="rounded-lg border border-amber-500/60 p-2">
+              <strong>Check this:</strong> you said “{c.said}”, but your notes say “{c.reference}”.
+            </p>
+          ))}
+          {view.accuracy.missed.length > 0 && (
+            <p>
+              <span aria-hidden="true">✗ </span>
+              <strong>Not mentioned:</strong> {view.accuracy.missed.join("; ")}
+            </p>
+          )}
+          {view.accuracy.verdict && <p className="opacity-70">{view.accuracy.verdict}</p>}
         </div>
       )}
 

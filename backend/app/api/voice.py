@@ -49,6 +49,7 @@ from app.services import ingest as ingest_svc
 from app.services import library as library_svc
 from app.services import notebooks as notebooks_svc
 from app.services import notes as notes_svc
+from app.services import reference as reference_svc
 from app.services import retrieval
 from app.services import sessions as svc
 from app.services.capture import file_candidate
@@ -783,7 +784,9 @@ class _Connection:
 
     # ---- teach_back: the learner explains out loud; we listen, then score it ----
 
-    async def start_teachback(self, topic: str | None, latency: TurnLatency | None = None) -> None:
+    async def start_teachback(
+        self, topic: str | None, latency: TurnLatency | None = None, *, evaluate: bool = False
+    ) -> None:
         if self.session_id is None:
             await self.out.send(ErrorEvent(message="Send a start event first"))
             return
@@ -791,16 +794,34 @@ class _Connection:
         self._cancel_silence()
         topic = (topic or "").strip() or suggest_topic(self.track)
         self.teachback = TeachBackSession(self.deps, self.session_id, self.track, topic)
+        intro = (
+            f"Okay. Explain {topic} in your own words, as if to a friend. "
+            "Take your time, and say I'm done when you've finished."
+        )
+        if evaluate:
+            async with self.deps.sessionmaker() as db:
+                reference = await reference_svc.gather(
+                    db,
+                    self.deps.embedder,
+                    track_slug=self.track,
+                    topic=topic,
+                    notebook_id=self.notebook_id,
+                )
+            if reference.empty:
+                intro = (
+                    f"I don't have notes on {topic} to check against, so I'll score how you "
+                    "explain it. " + intro
+                )
+            else:
+                self.teachback.reference = reference
+                intro = (
+                    f"Okay. Explain {topic} in your own words and I'll check it against "
+                    f"{reference.about()}. Say I'm done when you've finished."
+                )
         self.mode = Mode.teach_back
         await self._persist_mode(self.mode)
         await self.out.send(self.teachback.listening())
-        self._start_reply(
-            _once(
-                f"Okay. Explain {topic} in your own words, as if to a friend. "
-                "Take your time, and say I'm done when you've finished."
-            ),
-            latency or TurnLatency(),
-        )
+        self._start_reply(_once(intro), latency or TurnLatency())
 
     async def _handle_teach_back(
         self,
@@ -810,8 +831,8 @@ class _Connection:
         words: list[dict[str, Any]] | None,
     ) -> None:
         command = route.command or "segment"
-        if command == "start" or self.teachback is None:
-            await self.start_teachback(route.topic, latency)
+        if command in ("start", "start_eval") or self.teachback is None:
+            await self.start_teachback(route.topic, latency, evaluate=command == "start_eval")
             return
         if command == "segment":  # part of the explanation: listen, never interrupt
             await self.out.send(self.teachback.add(state.user_text, words))
@@ -831,7 +852,7 @@ class _Connection:
             return
         await self.out.send(TeachBackEvent(phase="scoring", topic=tb.topic, words=tb.word_count))
         related = await explain_node.find_related_note(self.deps, self.track, tb.topic)
-        event, feedback, _row = await tb.finish(note_id=related.id if related else None)
+        event, feedback, _row, accuracy = await tb.finish(note_id=related.id if related else None)
         await self.out.send(event)
         if feedback is None:
             spoken = (
@@ -840,6 +861,8 @@ class _Connection:
             )
         else:
             spoken = feedback.spoken()
+            if accuracy is not None:
+                spoken = f"{accuracy.spoken()} {spoken}"
         await self._set_mode(Mode.capture)
         self._start_reply(_once(spoken), latency)
 
@@ -1540,7 +1563,7 @@ async def voice_ws(ws: WebSocket) -> None:
             elif isinstance(event, QuizActionEvent):
                 await conn.quiz_action(event.action)
             elif isinstance(event, TeachBackStartEvent):
-                await conn.start_teachback(event.topic)
+                await conn.start_teachback(event.topic, evaluate=event.evaluate)
             elif isinstance(event, TeachBackDoneEvent):
                 await conn.finish_teachback(cancel=event.cancel)
             elif isinstance(event, NotebookOpenEvent):
