@@ -162,3 +162,21 @@ Start, or say "let me teach it back". Explain it, then press **I'm done** or say
 You get pace, fillers per 100 words, long pauses, sentence length, the what/how/why/impact checklist,
 clarity, one thing done well, one thing to fix, and one weak sentence rewritten. **Stats** charts the trend.
 With the mic on (real speech-to-text) pace and pauses are measured; typed text shows "–" for pace.
+
+## Notebooks, discussions and recitation
+
+On the Session page (or say these out loud; they also work with the mic):
+
+| Say | What happens |
+|---|---|
+| "Create a new notes file for binary search under dsa" | Moves to the dsa track, makes the notebook, and files everything you say next into it |
+| "Create notes files for binary and hashmap under dsa" | Makes both; opens the first. "Open hashmap notes" switches |
+| "Create new notes for system design where we discuss and solve the question" | Starts a discussion in the solutions track: it asks the problem, then evaluates what you propose, suggests alternatives and asks the next question. "Wrap up" saves an evaluation note and an architecture diagram |
+| "Let's discuss designing a URL shortener" | Same, with the problem named |
+| Recite a design aloud, then "draw the architecture" | One overview diagram of the whole open notebook |
+| "Start reciting my binary search notes" | Reads each note, explains it, then asks a question about it before moving on. "Stop" ends it |
+| Upload a PDF (Session page) | It is read and filed into a notebook named after it; the assistant summarises. Say "recite" to keep the notes and hear them explained |
+| "Stop" or "end the session" | Says goodbye and closes the mic |
+
+The **Notebooks** page lists each notebook's notes, with Add notes, Recite, rename and delete.
+

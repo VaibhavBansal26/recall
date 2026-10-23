@@ -14,6 +14,7 @@ from app.api import (
     graph,
     health,
     links,
+    notebooks,
     notes,
     reviews,
     sessions,
@@ -87,6 +88,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_api.router)
     app.include_router(sessions.router, dependencies=guarded)
     app.include_router(notes.router, dependencies=guarded)
+    app.include_router(notebooks.router, dependencies=guarded)
     app.include_router(links.router, dependencies=guarded)
     app.include_router(graph.router, dependencies=guarded)
     app.include_router(reviews.router, dependencies=guarded)

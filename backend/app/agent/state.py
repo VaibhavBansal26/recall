@@ -40,6 +40,7 @@ class AgentState(BaseModel):
     session_id: uuid.UUID
     track: str
     mode: str = "capture"
+    notebook_id: uuid.UUID | None = None  # file new notes here
     user_text: str = ""
     transcript_window: list[str] = Field(default_factory=list)
     active_note_ids: list[uuid.UUID] = Field(default_factory=list)

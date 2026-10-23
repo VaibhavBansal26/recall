@@ -6,6 +6,7 @@ from app.api.deps import Db
 from app.db.models import Note, NoteOrigin
 from app.schemas import DiagramOut, NoteCreate, NoteOut, NotePatch, UndoOut
 from app.services import diagrams as diagram_svc
+from app.services import notebooks as notebooks_svc
 from app.services import notes as svc
 from app.services.sessions import get_track
 
@@ -21,6 +22,7 @@ def to_note_out(note: Note) -> NoteOut:
         origin=note.origin,
         confirmed=note.confirmed,
         fragile=note.fragile,
+        notebook_id=note.notebook_id,
         created_at=note.created_at,
         updated_at=note.updated_at,
     )
@@ -71,6 +73,13 @@ async def patch_note(note_id: uuid.UUID, body: NotePatch, db: Db, request: Reque
         raise HTTPException(status_code=404, detail="Note not found")
     title = body.title if body.title is not None else note.title
     body_md = body.body_md if body.body_md is not None else note.body_md
+    notebook_kw: dict[str, uuid.UUID | None] = {}
+    if "notebook_id" in body.model_fields_set:
+        if body.notebook_id is not None:
+            target = await notebooks_svc.get_notebook(db, body.notebook_id)
+            if target is None or target.track_id != note.track_id:
+                raise HTTPException(status_code=422, detail="Notebook not found in this track")
+        notebook_kw["notebook_id"] = body.notebook_id
     changed = body.title is not None or body.body_md is not None
     embedding = await _embed(request, title, body_md) if changed else None
     note = await svc.update_note(
@@ -81,6 +90,7 @@ async def patch_note(note_id: uuid.UUID, body: NotePatch, db: Db, request: Reque
         confirmed=body.confirmed,
         fragile=body.fragile,
         embedding=embedding,
+        **notebook_kw,
     )
     return to_note_out(note)
 

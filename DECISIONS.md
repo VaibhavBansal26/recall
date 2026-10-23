@@ -2,6 +2,37 @@
 
 Newest first. Anything that differs from `CLAUDE.md` goes here with the reason.
 
+## Notebooks, discussions, recitation (post Phase 6, from the user's workflow)
+
+The user described how they actually study: "create a new notes file for binary search under dsa", a system
+design discussion where the assistant suggests and evaluates, reciting a design while it builds notes and
+a diagram, "start reciting my notes" with questions in between, and uploading a PDF to be analysed and
+recited. Spec section 1 has no folders, so this is an addition, logged here.
+
+- **A notebook is a named file of notes inside a track** (`notebooks` table, `notes.notebook_id`,
+  nullable). Notes can be unfiled. Names are unique per track ignoring case and punctuation. Deleting a
+  notebook keeps its notes. A source (PDF, link) gets its own notebook named after it; a discussion gets
+  one named after the problem.
+- **Spoken commands are rules, not LLM calls** (`agent/commands.py`), matching the whole sentence or a clear
+  command shape so ordinary notes are not hijacked ("open source models are better" is a note). Track words
+  map: dsa, ai/ai concepts -> ai-eng, system design/solutions -> solutions, english. Saying a track
+  ("under dsa") moves the live session to that track.
+- **"system design" means the `solutions` track** (spec: solution approaches to a specific question).
+  Discussions always live there.
+- **Discussion mode (`Mode.discuss`)**: sticky until "wrap up" or "stop". Each turn the assistant evaluates
+  what you said, makes one suggestion, and asks one question. Your own words are still captured as notes
+  in the discussion's notebook. Wrap-up saves an **assistant-origin, unconfirmed** evaluation note and an
+  overview diagram (rule 6: what the assistant adds is stored as its own, shown differently). If you
+  only say "system design", it asks which problem, then names the notebook after your first answer.
+- **Recite is read-back plus a question after every note.** It reuses the quiz machinery (hint ladder,
+  FSRS grading) one question at a time, so recitation also counts as review. Plain "read me my notes" is
+  unchanged (one question at the end). Notes with no question get one written on the spot.
+- **Overview diagram**: "draw the architecture" saves an assistant note "Overview: <notebook>" and one
+  diagram of the whole notebook, rather than redrawing per note.
+- **Uploads**: the Session page has a PDF upload. When filing finishes it hands the source to the assistant
+  ("review the new material"): summary, then "recite" keeps the notes and starts reciting that notebook.
+- Not built: uploading by voice (the browser needs a file picker), folders inside notebooks.
+
 ## Speech-to-text provider (post Phase 6)
 
 - **ElevenLabs Scribe v2 realtime is now the default STT** (`STT_PROVIDER=elevenlabs`), so one ElevenLabs

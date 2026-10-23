@@ -50,6 +50,8 @@ class QuizSession:
     results: list[_Result] = field(default_factory=list)
     outro: str = ""  # spoken after the summary (the brief's "what's due today")
     brief_id: uuid.UUID | None = None
+    # Recitation asks one question per note: skip the "you answered N of N" wrap-up each time.
+    compact: bool = False
 
     # ---------------------------------------------------------------- start / ask
 
@@ -190,6 +192,8 @@ class QuizSession:
         self.current = None
         if not self.queue:
             summary = self._summary(lead=spoken + " ")
+            if self.compact:
+                return QuizStep(spoken, [graded, *summary.events], ended=True)
             return QuizStep(summary.spoken, [graded, *summary.events], ended=True)
         nxt = await self._ask_next(lead=spoken + " Next question. ")
         return QuizStep(nxt.spoken, [graded, *nxt.events])

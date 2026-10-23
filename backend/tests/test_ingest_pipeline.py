@@ -670,3 +670,37 @@ def test_voice_review_not_now_leaves_it_waiting_and_nothing_new_is_handled(
         conv.say("not now")
         conv.kind("mode", mode="capture")
     assert detail(client, source_id)["status"] == "ready"
+
+
+# ---- a source becomes a notebook you can recite ----
+
+
+def test_a_source_is_filed_into_a_notebook_named_after_it(
+    client: TestClient, stub: StubFetcher
+) -> None:
+    ingest(client, stub)
+    [book] = client.get("/api/notebooks").json()
+    assert book["name"] == "The Big RAG Guide" and book["kind"] == "source"
+    assert book["note_count"] == len(client.get("/api/notes").json()) > 0
+    assert all(n["notebook_id"] == book["id"] for n in client.get("/api/notes").json())
+
+
+def test_after_an_upload_you_can_say_recite_to_hear_it_explained(
+    client: TestClient, stub: StubFetcher
+) -> None:
+    ingest(client, stub)
+    with client.websocket_connect("/ws/voice") as ws:
+        conv = Conv(ws)
+        conv.start()
+        conv.say("what did you file?")
+        conv.kind("mode", mode="ingest_review")
+        conv.kind("assistant_done")
+        assert "notebook called The Big RAG Guide" in conv.spoken()
+        assert "recite" in conv.spoken()
+
+        conv.say("yes, recite them")
+        conv.kind("read_back", index=0)
+        conv.kind("quiz", phase="asking")
+        conv.kind("assistant_done")
+        assert "I kept" in conv.spoken() and "In plain words" in conv.spoken()
+    assert all(n["confirmed"] for n in client.get("/api/notes").json())

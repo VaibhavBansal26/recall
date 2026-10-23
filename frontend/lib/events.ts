@@ -2,6 +2,7 @@
 
 export type Speaker = "user" | "assistant";
 export type NoteOrigin = "user" | "source" | "assistant";
+export type NotebookKind = "notes" | "discussion" | "source";
 
 export type ClientEvent =
   | { type: "start"; track: string; session_id?: string | null }
@@ -12,7 +13,10 @@ export type ClientEvent =
   | { type: "quiz"; note_id?: string | null; brief_id?: string | null }
   | { type: "quiz_action"; action: "hint" | "forgot" | "skip" | "end" }
   | { type: "teachback_start"; topic?: string | null }
-  | { type: "teachback_done"; cancel?: boolean };
+  | { type: "teachback_done"; cancel?: boolean }
+  | { type: "notebook_open"; notebook_id: string | null }
+  | { type: "recite_start"; notebook_id?: string | null }
+  | { type: "discuss_start"; topic: string };
 
 export interface CaptureItem {
   event_id: string;
@@ -142,6 +146,15 @@ export type ServerEvent =
   | { type: "confusion"; trigger: string; note_id: string | null }
   | { type: "mode"; mode: string }
   | { type: "session_end" }
+  | {
+      type: "notebook";
+      notebook_id: string | null;
+      name: string;
+      track: string;
+      kind: NotebookKind;
+      note_count: number;
+      created: boolean;
+    }
   | { type: "diagram"; items: DiagramItem[] }
   | { type: "links"; items: LinkItem[] }
   | {
@@ -171,6 +184,7 @@ export interface NoteCard {
   origin: NoteOrigin;
   confirmed: boolean;
   fragile: boolean;
+  notebookId?: string | null;
   change: {
     eventId: string;
     action: "created" | "merged";
@@ -241,6 +255,15 @@ export interface TeachBackView {
   rewrite: { original: string; improved: string } | null;
 }
 
+/** The notebook new notes are filed into right now. */
+export interface ActiveNotebook {
+  id: string;
+  name: string;
+  track: string;
+  kind: NotebookKind;
+  noteCount: number;
+}
+
 export interface Latency {
   sttToFirstTokenMs: number | null;
   firstTokenToAudioMs: number | null;
@@ -269,6 +292,7 @@ export interface ViewState {
   explanation: Explanation | null;
   readBack: ReadBackView | null;
   teachBack: TeachBackView | null;
+  notebook: ActiveNotebook | null;
   /** Counts spoken "end the session" commands; the screen turns the mic off when it changes. */
   voiceEnds: number;
   /** The note the assistant is currently talking about (read-back, quiz); the diagram follows it. */
@@ -296,6 +320,7 @@ export const initialViewState: ViewState = {
   explanation: null,
   readBack: null,
   teachBack: null,
+  notebook: null,
   voiceEnds: 0,
   focusNoteId: null,
   confusion: null,
@@ -379,6 +404,19 @@ export function reduceEvent(state: ViewState, event: ServerEvent): ViewState {
         ...state,
         mode: event.mode,
         readBack: event.mode === "read_back" ? state.readBack : null,
+      };
+    case "notebook":
+      return {
+        ...state,
+        notebook: event.notebook_id
+          ? {
+              id: event.notebook_id,
+              name: event.name,
+              track: event.track,
+              kind: event.kind,
+              noteCount: event.note_count,
+            }
+          : null,
       };
     case "session_end":
       return { ...state, voiceEnds: state.voiceEnds + 1 };

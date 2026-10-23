@@ -11,6 +11,7 @@ import { TrackSwitcher } from "./TrackSwitcher";
 
 const LINKS = [
   { href: "/session", label: "Session" },
+  { href: "/notebooks", label: "Notebooks" },
   { href: "/review", label: "Review" },
   { href: "/sources", label: "Sources" },
   { href: "/stats", label: "Stats" },

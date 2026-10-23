@@ -147,6 +147,43 @@ class Utterance(Base):
     session: Mapped[LearningSession] = relationship(back_populates="utterances")
 
 
+class NotebookKind(enum.StrEnum):
+    notes = "notes"  # a topic file you add to ("binary search")
+    discussion = "discussion"  # a worked problem: approaches, tradeoffs, decision
+    source = "source"  # built around an uploaded PDF, link or video
+
+
+class Notebook(Base):
+    """A named file of notes inside a track, e.g. dsa / "Binary search". Notes may be unfiled."""
+
+    __tablename__ = "notebooks"
+    __table_args__ = (UniqueConstraint("track_id", "slug"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, default=uuid.uuid4, server_default=sql_text("gen_random_uuid()")
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(default=LOCAL_USER_ID, index=True)
+    track_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tracks.id"), index=True)
+    name: Mapped[str] = mapped_column(Text)
+    slug: Mapped[str] = mapped_column(Text)  # normalised name; unique within the track
+    kind: Mapped[NotebookKind] = mapped_column(
+        Enum(NotebookKind, name="notebook_kind"),
+        default=NotebookKind.notes,
+        server_default="notes",
+    )
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("sources.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, server_default=sql_text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now, server_default=sql_text("now()")
+    )
+
+    track: Mapped["Track"] = relationship(lazy="joined")
+
+
 class Note(Base):
     __tablename__ = "notes"
     __table_args__ = (
@@ -176,6 +213,9 @@ class Note(Base):
     fragile: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     source_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("sources.id", ondelete="SET NULL")
+    )
+    notebook_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("notebooks.id", ondelete="SET NULL"), index=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, server_default=sql_text("now()")

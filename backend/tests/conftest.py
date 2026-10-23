@@ -56,5 +56,5 @@ def clean_notes() -> None:
     url = make_url(TEST_DB_URL).set(drivername="postgresql")
     with psycopg.connect(url.render_as_string(hide_password=False), autocommit=True) as conn:
         conn.execute(
-            "TRUNCATE capture_events, notes, sources, daily_briefs, articulation_scores CASCADE"
+            "TRUNCATE capture_events, notes, notebooks, sources, daily_briefs, articulation_scores CASCADE"
         )

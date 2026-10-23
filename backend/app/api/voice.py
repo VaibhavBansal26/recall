@@ -12,13 +12,16 @@ from fastapi import APIRouter, WebSocket
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import select, update
 
+from app.agent import commands
 from app.agent.confusion import ConfusionTracker
 from app.agent.deps import AgentDeps
 from app.agent.graph import stream_capture
+from app.agent.nodes import discuss as discuss_node
 from app.agent.nodes import explain as explain_node
 from app.agent.nodes import read_back as read_back_node
-from app.agent.nodes.capture import ack_stream
+from app.agent.nodes.capture import ack_stream, capture_item
 from app.agent.nodes.chitchat import chitchat_stream
+from app.agent.nodes.discuss import DiscussSession
 from app.agent.nodes.recall_quiz import QuizSession, QuizStep
 from app.agent.nodes.teach_back import TeachBackSession, suggest_topic
 from app.agent.router import Mode, Route, route_turn
@@ -29,6 +32,10 @@ from app.db.models import (
     BriefStatus,
     CaptureEvent,
     LearningSession,
+    Note,
+    Notebook,
+    NotebookKind,
+    NoteOrigin,
     Source,
     SourceStatus,
     Speaker,
@@ -38,6 +45,7 @@ from app.services import briefs as briefs_svc
 from app.services import confusion as confusion_svc
 from app.services import diagrams as diagram_svc
 from app.services import ingest as ingest_svc
+from app.services import notebooks as notebooks_svc
 from app.services import notes as notes_svc
 from app.services import retrieval
 from app.services import sessions as svc
@@ -49,6 +57,7 @@ from app.voice.events import (
     AudioEvent,
     ConfusionEvent,
     DiagramEvent,
+    DiscussStartEvent,
     EndSpeechEvent,
     ErrorEvent,
     ExplainEvent,
@@ -57,9 +66,12 @@ from app.voice.events import (
     LatencyEvent,
     LinksEvent,
     ModeEvent,
+    NotebookEvent,
+    NotebookOpenEvent,
     NotesEvent,
     QuizActionEvent,
     QuizStartEvent,
+    ReciteStartEvent,
     SessionEndEvent,
     SessionEvent,
     SpeechStartEvent,
@@ -124,6 +136,10 @@ class _Connection:
         self.readback: read_back_node.ReadBackSession | None = None
         self.ingest_source_id: uuid.UUID | None = None
         self.teachback: TeachBackSession | None = None
+        self.discuss: DiscussSession | None = None
+        self.notebook_id: uuid.UUID | None = None  # new notes are filed here
+        self.notebook_name: str | None = None
+        self.recite_resume = False  # after each recitation question, carry on to the next note
         self.speed: float = 1.0
         self.active_note_id: uuid.UUID | None = None  # last note we explained/read/quizzed
         self.last_topic: str | None = None
@@ -156,6 +172,8 @@ class _Connection:
         self.window = []
         self.confusion = ConfusionTracker()
         self.mode, self.quiz, self.readback, self.speed = Mode.capture, None, None, 1.0
+        self.discuss, self.notebook_id, self.notebook_name = None, None, None
+        self.recite_resume = False
         self.active_note_id = self.last_topic = None
         if self.voice.audio_input:
             try:
@@ -238,6 +256,7 @@ class _Connection:
             track=self.track,
             user_text=text,
             transcript_window=self.window[-WINDOW_SIZE:],
+            notebook_id=self.notebook_id,
         )
         previous = self.window[-1] if self.window else None
         self.window.append(text)
@@ -272,6 +291,12 @@ class _Connection:
             await self._handle_ingest_review(route, latency)
         elif route.mode == Mode.explain:
             await self._handle_explain(route.topic or state.user_text, latency, simple=False)
+        elif route.mode == Mode.discuss:
+            await self._handle_discuss(route, state, latency)
+        elif route.command and route.command.startswith("notebook_"):
+            await self._handle_notebook(route, latency)
+        elif route.command == "draw":
+            await self._draw_overview(latency)
         elif route.mode == Mode.chitchat and route.command == "end_session":
             await self._set_mode(Mode.capture)
             await self.out.send(SessionEndEvent())  # the client closes the mic
@@ -285,9 +310,12 @@ class _Connection:
             if self.mode != Mode.capture:
                 await self._set_mode(Mode.capture)
             self._start_reply(ack_stream(self.deps, state), latency)
-            capture = asyncio.create_task(self._capture(state))
-            self.capture_tasks.add(capture)
-            capture.add_done_callback(self.capture_tasks.discard)
+            self._spawn_capture(state)
+
+    def _spawn_capture(self, state: AgentState) -> None:
+        capture = asyncio.create_task(self._capture(state))
+        self.capture_tasks.add(capture)
+        capture.add_done_callback(self.capture_tasks.discard)
 
     async def _set_mode(self, mode: Mode) -> None:
         if mode == self.mode:
@@ -300,6 +328,10 @@ class _Connection:
             self.speed = 1.0
         if mode != Mode.teach_back:
             self.teachback = None
+        if mode != Mode.discuss:
+            self.discuss = None
+        if mode == Mode.capture:
+            self.recite_resume = False
         await self._persist_mode(mode)
 
     async def _persist_mode(self, mode: Mode) -> None:
@@ -499,6 +531,9 @@ class _Connection:
                 await self.start_quiz(topic=route.topic)
             return
         command = route.command or "answer"
+        if command == "end" and self.recite_resume:
+            await self._stop_recite(latency)
+            return
         text = self.window[-1] if self.window else ""
         if command == "hint" or command == "forgot":
             step = await self.quiz.hint()
@@ -515,6 +550,9 @@ class _Connection:
             return
         await self.interrupt(announce=True)
         latency = TurnLatency()
+        if action == "end" and self.recite_resume:
+            await self._stop_recite(latency)
+            return
         step = {
             "hint": self.quiz.hint,
             "forgot": self.quiz.hint,
@@ -536,6 +574,9 @@ class _Connection:
                     brief = await briefs_svc.get_brief(db, self.quiz.brief_id)
                     if brief is not None:
                         await briefs_svc.mark_completed(db, brief)
+            if self.recite_resume and self.readback is not None:
+                await self._recite_continue(step.spoken, latency)
+                return
             await self._set_mode(Mode.capture)
         self._start_reply(_once(step.spoken), latency)
 
@@ -543,22 +584,19 @@ class _Connection:
 
     async def _handle_read_back(self, route: Route, latency: TurnLatency) -> None:
         assert self.session_id is not None
-        session_id = self.session_id
         rb = self.readback
         command = route.command or "start"
 
-        if rb is None or command == "start":
-            rb = await read_back_node.start(self.deps, self.track, route.topic)
-            if rb is None:
-                about = f" about {route.topic}" if route.topic else ""
-                self._start_reply(_once(f"I don't have any notes{about} yet."), latency)
+        if rb is None or command in ("start", "recite"):
+            if route.track and not await self._switch_track(route.track):
+                self._start_reply(_once("I don't have a folder with that name."), latency)
                 return
-            self.readback = rb
-            await self._set_mode(Mode.read_back)
-            self.readback = rb  # _set_mode clears it when leaving read_back
-            self.speed = rb.speed
-            step = await read_back_node.read_current(self.deps, rb, session_id)
-        elif command in ("next", "skip"):
+            await self._begin_read(
+                check=command == "recite", topic=route.topic, notebook_id=None, latency=latency
+            )
+            return
+        session_id = self.session_id
+        if command in ("next", "skip"):
             step = await read_back_node.advance(self.deps, rb, session_id)
         elif command in ("slower", "faster"):
             read_back_node.change_speed(rb, command)
@@ -568,29 +606,122 @@ class _Connection:
             step = await read_back_node.read_current(self.deps, rb, session_id)
         else:  # stop
             step = read_back_node.stop(rb)
+        await self._deliver_read_step(step, rb, latency)
 
-        spoken = step.spoken
+    async def _begin_read(
+        self,
+        *,
+        check: bool,
+        topic: str | None,
+        notebook_id: uuid.UUID | None,
+        latency: TurnLatency,
+        lead: str = "",
+    ) -> None:
+        """Read a notebook or topic aloud; reciting also explains each note and asks questions."""
+        assert self.session_id is not None
+        if notebook_id is None:
+            async with self.deps.sessionmaker() as db:
+                track = await svc.get_track(db, self.track)
+                book = None
+                if topic and track is not None:
+                    book = await notebooks_svc.find(db, track.id, topic)
+                elif self.notebook_id is not None:  # "recite" with no name: the open notebook
+                    book = await notebooks_svc.get_notebook(db, self.notebook_id)
+                notebook_id = book.id if book else None
+        rb = await read_back_node.start(
+            self.deps, self.track, topic, notebook_id=notebook_id, check=check
+        )
+        if rb is None:
+            about = f" about {topic}" if topic else ""
+            self._start_reply(_once(f"I don't have any notes{about} yet."), latency)
+            return
+        self.readback = rb
+        self.recite_resume = False
+        await self._set_mode(Mode.read_back)
+        self.readback = rb  # _set_mode clears it when leaving read_back
+        self.speed = rb.speed
+        prefix = f"{lead} " if lead else ""
+        if check:
+            what = rb.notebook_name or topic or "your notes"
+            prefix += (
+                f"Okay, let's recite {what}. I'll read each note, explain it, "
+                "and ask you a question before we move on. "
+            )
+        step = await read_back_node.read_current(self.deps, rb, self.session_id)
+        await self._deliver_read_step(step, rb, latency, prefix=prefix)
+
+    async def _deliver_read_step(
+        self,
+        step: read_back_node.ReadBackStep,
+        rb: read_back_node.ReadBackSession,
+        latency: TurnLatency,
+        prefix: str = "",
+    ) -> None:
+        assert self.session_id is not None
+        spoken = prefix + step.spoken
         for event in step.events:
             await self.out.send(event)
         if step.note_id is not None:
             self.active_note_id = step.note_id
             self._spawn(self._send_note_diagram(step.note_id))
 
-        if step.finished:
-            if step.question_item is not None:
-                # Finish by asking one question: hand over to the quiz for that item.
-                self.quiz = QuizSession(self.deps, session_id, self.track)
-                self.mode = Mode.recall_quiz
-                quiz_step = await self.quiz.start(items=[step.question_item])
-                for quiz_event in quiz_step.events:
-                    await self.out.send(quiz_event)
-                spoken = f"{spoken} {quiz_step.spoken}"
-                await self._persist_mode(self.mode)
+        if step.question_item is not None and (step.finished or rb.check):
+            # Ask one question: hand over to the quiz for that item (graded, with the hint ladder).
+            self.quiz = QuizSession(self.deps, self.session_id, self.track, compact=rb.check)
+            self.mode = Mode.recall_quiz
+            quiz_step = (
+                await self.quiz.start(items=[step.question_item], lead="")
+                if rb.check
+                else await self.quiz.start(items=[step.question_item])
+            )
+            for quiz_event in quiz_step.events:
+                await self.out.send(quiz_event)
+            spoken = f"{spoken}{quiz_step.spoken}"
+            await self._persist_mode(self.mode)
+            if rb.check:
+                self.recite_resume = True  # carry on with the next note once this one is answered
+            else:
                 self.readback = None
                 self.speed = 1.0
-            else:
-                await self._set_mode(Mode.capture)
+        elif step.finished:
+            await self._set_mode(Mode.capture)
         self._start_reply(_once(spoken), latency)
+
+    async def _recite_continue(self, prefix: str, latency: TurnLatency) -> None:
+        """A recitation question is done: say how it went and move to the next note."""
+        assert self.session_id is not None
+        rb = self.readback
+        if rb is None or rb.index + 1 >= rb.total:
+            name = (rb.notebook_name if rb else None) or "those notes"
+            await self._set_mode(Mode.capture)
+            self._start_reply(_once(f"{prefix} That's all of {name}. Nicely done."), latency)
+            return
+        self.mode = Mode.read_back
+        await self._persist_mode(self.mode)
+        rb.index += 1
+        step = await read_back_node.read_current(self.deps, rb, self.session_id)
+        await self._deliver_read_step(step, rb, latency, prefix=f"{prefix} Next. ")
+
+    async def _stop_recite(self, latency: TurnLatency) -> None:
+        await self._set_mode(Mode.capture)
+        self._start_reply(_once("Okay, stopping the recitation."), latency)
+
+    async def start_recite(self, notebook_id: uuid.UUID | None) -> None:
+        """The Recite button: explain each note in the notebook and ask questions in between."""
+        if self.session_id is None:
+            await self.out.send(ErrorEvent(message="Send a start event first"))
+            return
+        await self.interrupt(announce=True)
+        self._cancel_silence()
+        notebook_id = notebook_id or self.notebook_id
+        if notebook_id is not None:
+            async with self.deps.sessionmaker() as db:
+                book = await notebooks_svc.get_notebook(db, notebook_id)
+            if book is not None and book.track.slug != self.track:
+                await self._switch_track(book.track.slug)
+        await self._begin_read(
+            check=True, topic=None, notebook_id=notebook_id, latency=TurnLatency()
+        )
 
     # ---- teach_back: the learner explains out loud; we listen, then score it ----
 
@@ -658,6 +789,7 @@ class _Connection:
 
     async def _handle_ingest_review(self, route: Route, latency: TurnLatency) -> None:
         command = route.command or "start"
+        recite_book: uuid.UUID | None = None
         async with self.deps.sessionmaker() as db:
             if command == "start" or self.ingest_source_id is None:
                 source = (
@@ -702,6 +834,14 @@ class _Connection:
                 await ingest_svc.approve(db, source)  # nothing left to confirm; closes it
                 spoken = "Okay, I removed everything that source added."
                 done = True
+            elif command == "recite":
+                count = await ingest_svc.approve(db, source)
+                book_id = (
+                    await db.execute(select(Notebook.id).where(Notebook.source_id == source.id))
+                ).scalar_one_or_none()
+                spoken = f"Done. I kept {count} note{'s' if count != 1 else ''}."
+                done = True
+                recite_book = book_id
             elif command == "end":
                 spoken = "Okay, they will wait for you on the sources page."
                 done = True
@@ -711,6 +851,11 @@ class _Connection:
         if done:
             self.ingest_source_id = None
             await self._set_mode(Mode.capture)
+        if recite_book is not None:
+            await self._begin_read(
+                check=True, topic=None, notebook_id=recite_book, latency=latency, lead=spoken
+            )
+            return
         self._start_reply(_once(spoken), latency)
 
     async def _ingest_summary(self, db: Any, source: Source) -> str:
@@ -726,7 +871,315 @@ class _Connection:
         names = [e.note.title for e in titles if e.note is not None]
         about = f" from {source.title}" if source.title else ""
         sample = f" For example: {'; '.join(names)}." if names else ""
-        return f"{headline[:-1]}{about}.{sample} Shall I keep them?"
+        book = (
+            await db.execute(select(Notebook).where(Notebook.source_id == source.id))
+        ).scalar_one_or_none()
+        filed = f" They're in a notebook called {book.name}." if book else ""
+        return (
+            f"{headline[:-1]}{about}.{sample}{filed} Shall I keep them? "
+            "Say recite to hear them explained."
+        )
+
+    # ---- notebooks: named files of notes inside a track ----
+
+    async def _switch_track(self, slug: str | None) -> bool:
+        """Move this connection to another track ("under dsa"), starting a session there."""
+        if slug is None or slug == self.track:
+            return True
+        async with self.deps.sessionmaker() as db:
+            track = await svc.get_track(db, slug)
+            if track is None:
+                return False
+            session = await svc.create_session(db, track)
+            self.session_id, self.track = session.id, track.slug
+        self.window = []
+        self.confusion = ConfusionTracker()
+        self.mode, self.quiz, self.readback, self.speed = Mode.capture, None, None, 1.0
+        self.teachback = self.discuss = None
+        self.recite_resume = False
+        self.notebook_id = self.notebook_name = None
+        await self.out.send(
+            SessionEvent(
+                session_id=self.session_id, track=self.track, audio_input=self.stt is not None
+            )
+        )
+        await self.out.send(NotebookEvent())
+        return True
+
+    async def _activate_notebook(self, book: Notebook | None, *, created: bool = False) -> None:
+        """Make this the notebook new notes are filed into (None closes it)."""
+        if book is None:
+            self.notebook_id = self.notebook_name = None
+            await self.out.send(NotebookEvent())
+            return
+        async with self.deps.sessionmaker() as db:
+            count = await notebooks_svc.count_notes(db, book.id)
+        self.notebook_id, self.notebook_name = book.id, book.name
+        await self.out.send(
+            NotebookEvent(
+                notebook_id=book.id,
+                name=book.name,
+                track=book.track.slug,
+                kind=book.kind.value,
+                note_count=count,
+                created=created,
+            )
+        )
+
+    async def open_notebook(self, notebook_id: uuid.UUID | None) -> None:
+        """The notebook picker in the UI."""
+        if self.session_id is None:
+            await self.out.send(ErrorEvent(message="Send a start event first"))
+            return
+        if notebook_id is None:
+            await self._activate_notebook(None)
+            return
+        async with self.deps.sessionmaker() as db:
+            book = await notebooks_svc.get_notebook(db, notebook_id)
+        if book is None:
+            await self.out.send(ErrorEvent(message="Notebook not found"))
+            return
+        if book.track.slug != self.track and not await self._switch_track(book.track.slug):
+            return
+        await self._activate_notebook(book)
+
+    async def _handle_notebook(self, route: Route, latency: TurnLatency) -> None:
+        command = route.command
+        if command == "notebook_close":
+            await self._activate_notebook(None)
+            self._start_reply(
+                _once("Okay, closed it. New notes won't go into a notebook."), latency
+            )
+            return
+        if not await self._switch_track(route.track):
+            self._start_reply(_once("I don't have a folder with that name."), latency)
+            return
+        async with self.deps.sessionmaker() as db:
+            track = await svc.get_track(db, self.track)
+            assert track is not None
+            track_name = track.name
+            if command == "notebook_new":
+                made = [await notebooks_svc.get_or_create(db, track, n) for n in route.names]
+                books = [b for b, _ in made]
+                first: Notebook | None = made[0][0]
+                first_created = made[0][1]
+                new_names = [b.name for b, created in made if created]
+                count = await notebooks_svc.count_notes(db, made[0][0].id)
+            else:  # notebook_open
+                first = await notebooks_svc.find(db, track.id, route.names[0])
+                books, first_created, new_names, count = [], False, [], 0
+                if first is not None:
+                    count = await notebooks_svc.count_notes(db, first.id)
+        if first is None:
+            name = route.names[0]
+            self._start_reply(
+                _once(f"I couldn't find notes called {name}. Say create a notes file for {name}."),
+                latency,
+            )
+            return
+        await self._activate_notebook(first, created=first_created)
+        if command == "notebook_open":
+            spoken = (
+                f"Opened {first.name}. It has {count} note{'s' if count != 1 else ''}. "
+                "Anything you say now goes into it."
+            )
+        elif len(books) > 1:
+            others = " and ".join(b.name for b in books[1:])
+            spoken = (
+                f"Done, {len(books)} notes files in {track_name}: "
+                f"{', '.join(b.name for b in books)}. I'll start with {first.name}. "
+                f"Say open {others} notes to switch."
+            )
+        elif new_names:
+            spoken = (
+                f"Done. I made a notes file called {first.name} in {track_name}. "
+                "Anything you say now goes into it."
+            )
+        else:
+            spoken = (
+                f"{first.name} already exists, so I opened it. It has {count} "
+                f"note{'s' if count != 1 else ''}."
+            )
+        self._start_reply(_once(spoken), latency)
+
+    # ---- discuss: solve and evaluate a design or problem together ----
+
+    async def start_discussion(self, topic: str) -> None:
+        if self.session_id is None:
+            await self.out.send(ErrorEvent(message="Send a start event first"))
+            return
+        await self.interrupt(announce=True)
+        self._cancel_silence()
+        await self._start_discussion(topic, "solutions", TurnLatency())
+
+    async def _start_discussion(self, topic: str, track: str | None, latency: TurnLatency) -> None:
+        if not await self._switch_track(track):
+            self._start_reply(_once("I don't have a folder for discussions yet."), latency)
+            return
+        assert self.session_id is not None
+        topic = topic.strip(" .,") or "a design problem"
+        async with self.deps.sessionmaker() as db:
+            track_row = await svc.get_track(db, self.track)
+            assert track_row is not None
+            book, created = await notebooks_svc.get_or_create(
+                db, track_row, topic, NotebookKind.discussion
+            )
+        await self._activate_notebook(book, created=created)
+        await self._set_mode(Mode.discuss)
+        ds = DiscussSession(
+            problem=topic,
+            notebook_id=book.id,
+            notebook_name=book.name,
+            generic=commands.is_generic_topic(topic),
+        )
+        self.discuss = ds
+        self._start_reply(
+            discuss_node.stream_turn(
+                self.deps, ds, session_id=self.session_id, track=self.track, learner_text=None
+            ),
+            latency,
+        )
+
+    async def _handle_discuss(self, route: Route, state: AgentState, latency: TurnLatency) -> None:
+        assert self.session_id is not None
+        command = route.command or "turn"
+        ds = self.discuss
+        if command == "start" or ds is None:
+            await self._start_discussion(route.topic or state.user_text, route.track, latency)
+            return
+        if command == "end":
+            await self._set_mode(Mode.capture)
+            self._start_reply(
+                _once(f"Okay, leaving the discussion. Your notes are saved in {ds.notebook_name}."),
+                latency,
+            )
+            return
+        if command == "wrap":
+            await self._finish_discussion(ds, latency)
+            return
+        if ds.generic:  # the first answer names the problem: use it to title the discussion
+            await self._name_discussion(ds, commands.problem_from(state.user_text))
+        # A normal turn: evaluate and suggest out loud, and keep taking notes from what was said.
+        self._start_reply(
+            discuss_node.stream_turn(
+                self.deps,
+                ds,
+                session_id=self.session_id,
+                track=self.track,
+                learner_text=state.user_text,
+            ),
+            latency,
+        )
+        self._spawn_capture(state)
+
+    async def _name_discussion(self, ds: DiscussSession, problem: str) -> None:
+        ds.problem, ds.generic = problem, False
+        async with self.deps.sessionmaker() as db:
+            book = await notebooks_svc.get_notebook(db, ds.notebook_id)
+            if book is None:
+                return
+            try:
+                await notebooks_svc.rename(db, book, problem[:120])
+            except ValueError:
+                return  # another notebook already has that name: keep the generic one
+        ds.notebook_name = book.name
+        await self._activate_notebook(book)
+
+    async def _finish_discussion(self, ds: DiscussSession, latency: TurnLatency) -> None:
+        assert self.session_id is not None
+        await asyncio.gather(*self.capture_tasks, return_exceptions=True)  # let the last notes land
+        async with self.deps.sessionmaker() as db:
+            notes = await notebooks_svc.notes_in(db, ds.notebook_id)
+        summary = await discuss_node.summarize(self.deps, ds, notes, session_id=self.session_id)
+        body = summary.evaluation_md.strip()
+        if summary.decision and summary.decision.lower() != "no decision yet":
+            body = f"**Decision:** {summary.decision}\n\n{body}"
+        evaluation = await self._save_assistant_note(
+            f"Evaluation: {ds.problem}"[:120], body, ds.notebook_id
+        )
+        self._spawn(self._overview_diagram(evaluation, ds.problem, notes))
+        await self._set_mode(Mode.capture)
+        self._start_reply(
+            _once(f"{summary.verdict} I saved the evaluation in {ds.notebook_name}."), latency
+        )
+
+    async def _save_assistant_note(
+        self, title: str, body_md: str, notebook_id: uuid.UUID | None
+    ) -> Note:
+        """Assistant additions are stored as its own, unconfirmed (rule 6); same title: update."""
+        embedding = (await self.deps.embedder.embed([f"{title}\n{body_md}"]))[0]
+        async with self.deps.sessionmaker() as db:
+            track = await svc.get_track(db, self.track)
+            assert track is not None
+            existing = None
+            if notebook_id is not None:
+                existing = next(
+                    (n for n in await notebooks_svc.notes_in(db, notebook_id) if n.title == title),
+                    None,
+                )
+            if existing is not None:
+                note = await notes_svc.update_note(
+                    db, existing, body_md=body_md, embedding=embedding
+                )
+                event = None
+            else:
+                note, event = await notes_svc.create_note(
+                    db,
+                    track=track,
+                    title=title,
+                    body_md=body_md,
+                    origin=NoteOrigin.assistant,
+                    embedding=embedding,
+                    session_id=self.session_id,
+                    notebook_id=notebook_id,
+                )
+        if event is not None:
+            await self.out.send(NotesEvent(items=[capture_item(event, note)]))
+        return note
+
+    async def _overview_diagram(self, anchor: Note, title: str, notes: list[Note]) -> None:
+        """One architecture-style diagram of the whole notebook, kept on `anchor`."""
+        text = "\n".join(f"{n.title}. {n.body_md}" for n in notes)[:6000] or anchor.body_md
+        try:
+            kind, source = await diagram_svc.build_diagram(
+                self.deps.llm,
+                title=title,
+                body_md=text,
+                session_id=self.session_id,
+                track_slug=self.track,
+            )
+            async with self.deps.sessionmaker() as db:
+                diagram = await diagram_svc.save_diagram(db, anchor.id, kind, source)
+            item = DiagramItem(note_id=anchor.id, kind=diagram.kind.value, source=diagram.source)
+            await self.out.send(DiagramEvent(items=[item]))
+        except Exception:
+            log.exception("overview diagram failed")
+
+    async def _draw_overview(self, latency: TurnLatency) -> None:
+        """ "Draw the architecture": a diagram that pulls the whole open notebook together."""
+        if self.notebook_id is None or self.notebook_name is None:
+            self._start_reply(
+                _once("Open or create a notes file first, then I can draw it."), latency
+            )
+            return
+        async with self.deps.sessionmaker() as db:
+            notes = [
+                n
+                for n in await notebooks_svc.notes_in(db, self.notebook_id)
+                if not n.title.startswith("Overview: ")
+            ]
+        if not notes:
+            self._start_reply(_once(f"{self.notebook_name} has no notes to draw yet."), latency)
+            return
+        titles = "\n".join(f"- {n.title}" for n in notes)
+        anchor = await self._save_assistant_note(
+            f"Overview: {self.notebook_name}"[:120], titles, self.notebook_id
+        )
+        self._spawn(self._overview_diagram(anchor, self.notebook_name, notes))
+        self._start_reply(
+            _once(f"Here's the overview of {self.notebook_name}, drawn from {len(notes)} notes."),
+            latency,
+        )
 
     # ---- diagrams for notes ----
 
@@ -933,5 +1386,11 @@ async def voice_ws(ws: WebSocket) -> None:
                 await conn.start_teachback(event.topic)
             elif isinstance(event, TeachBackDoneEvent):
                 await conn.finish_teachback(cancel=event.cancel)
+            elif isinstance(event, NotebookOpenEvent):
+                await conn.open_notebook(event.notebook_id)
+            elif isinstance(event, ReciteStartEvent):
+                await conn.start_recite(event.notebook_id)
+            elif isinstance(event, DiscussStartEvent):
+                await conn.start_discussion(event.topic)
     finally:
         await conn.close()

@@ -14,6 +14,7 @@ export class VoiceSocket {
   constructor(private handlers: Handlers) {}
 
   connect(track: string): void {
+    this.socket?.close(); // switching tracks replaces the connection
     const socket = new WebSocket(wsUrl());
     let opened = false;
     this.socket = socket;

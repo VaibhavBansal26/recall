@@ -261,3 +261,28 @@ describe("ending the session by voice", () => {
     expect(reduceEvent(once, { type: "session_end" }).voiceEnds).toBe(2);
   });
 });
+
+describe("notebooks", () => {
+  const open = {
+    type: "notebook" as const,
+    notebook_id: "n1",
+    name: "Binary search",
+    track: "dsa",
+    kind: "notes" as const,
+    note_count: 2,
+    created: true,
+  };
+
+  it("tracks the notebook new notes go into, and clears it", () => {
+    const opened = reduceEvent(initialViewState, open);
+    expect(opened.notebook).toEqual({ id: "n1", name: "Binary search", track: "dsa", kind: "notes", noteCount: 2 });
+    expect(reduceEvent(opened, { ...open, notebook_id: null, name: "" }).notebook).toBeNull();
+  });
+
+  it("forgets the notebook when the session moves to another track", () => {
+    const opened = reduceEvent(initialViewState, open);
+    const moved = reduceEvent(opened, { type: "session", session_id: "s2", track: "solutions", audio_input: false });
+    expect(moved.notebook).toBeNull();
+    expect(moved.track).toBe("solutions");
+  });
+});

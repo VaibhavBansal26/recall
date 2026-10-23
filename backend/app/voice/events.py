@@ -69,6 +69,25 @@ class TeachBackDoneEvent(BaseModel):
     cancel: bool = False
 
 
+class NotebookOpenEvent(BaseModel):
+    """Choose the notebook new notes go into (null closes it)."""
+
+    type: Literal["notebook_open"] = "notebook_open"
+    notebook_id: uuid.UUID | None = None
+
+
+class ReciteStartEvent(BaseModel):
+    """Recite a notebook (explain each note and ask questions in between)."""
+
+    type: Literal["recite_start"] = "recite_start"
+    notebook_id: uuid.UUID | None = None
+
+
+class DiscussStartEvent(BaseModel):
+    type: Literal["discuss_start"] = "discuss_start"
+    topic: str
+
+
 ClientMessage = (
     StartEvent
     | TextEvent
@@ -79,6 +98,9 @@ ClientMessage = (
     | QuizActionEvent
     | TeachBackStartEvent
     | TeachBackDoneEvent
+    | NotebookOpenEvent
+    | ReciteStartEvent
+    | DiscussStartEvent
 )
 ClientEvent = Annotated[ClientMessage, Field(discriminator="type")]
 client_event_adapter: TypeAdapter[ClientMessage] = TypeAdapter(ClientEvent)
@@ -217,6 +239,18 @@ class TeachBackEvent(BaseModel):
     rewrite: TeachBackRewrite | None = None
 
 
+class NotebookEvent(BaseModel):
+    """The notebook new notes are filed into right now (null id: none)."""
+
+    type: Literal["notebook"] = "notebook"
+    notebook_id: uuid.UUID | None = None
+    name: str = ""
+    track: str = ""
+    kind: str = "notes"
+    note_count: int = 0
+    created: bool = False
+
+
 class SessionEndEvent(BaseModel):
     """The learner ended the session by voice: the client turns the microphone off."""
 
@@ -271,6 +305,7 @@ ServerEvent = (
     | TeachBackEvent
     | ModeEvent
     | SessionEndEvent
+    | NotebookEvent
     | DiagramEvent
     | LinksEvent
     | LatencyEvent

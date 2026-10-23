@@ -130,3 +130,15 @@ class TeachBackScore(BaseModel):
     rewrite: str = Field(
         description="That sentence rewritten more clearly, using only the learner's ideas"
     )
+
+
+class DiscussionSummary(BaseModel):
+    """The wrap-up of a worked discussion: a spoken verdict and a written evaluation."""
+
+    verdict: str = Field(description="Two or three short spoken sentences")
+    decision: str = Field(description="The approach the learner chose, or 'No decision yet'")
+    evaluation_md: str = Field(description="Markdown with the five headings")
+
+
+class ReciteExplain(BaseModel):
+    text: str = Field(description="Two or three spoken sentences explaining the note")

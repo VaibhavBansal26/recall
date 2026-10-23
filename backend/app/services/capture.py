@@ -27,6 +27,7 @@ async def file_candidate(
     session_id: uuid.UUID | None = None,
     source_id: uuid.UUID | None = None,
     usage_id: uuid.UUID | None = None,
+    notebook_id: uuid.UUID | None = None,
 ) -> tuple[CaptureEvent, Note]:
     dup = await notes_svc.find_duplicate(
         db, track.id, title, embedding, deps.settings.dedup_similarity
@@ -41,6 +42,7 @@ async def file_candidate(
             embedding=embedding,
             session_id=session_id,
             source_id=source_id,
+            notebook_id=notebook_id,
         )
         assert event is not None and event.action == CaptureAction.created
         return event, note
@@ -62,4 +64,7 @@ async def file_candidate(
         session_id=session_id,
         source_id=source_id,
     )
+    if notebook_id is not None and existing.notebook_id is None:
+        existing.notebook_id = notebook_id  # an unfiled note joins the notebook it was repeated in
+        await db.commit()
     return event, existing

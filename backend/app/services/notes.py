@@ -65,6 +65,7 @@ async def create_note(
     embedding: list[float] | None,
     session_id: uuid.UUID | None = None,
     source_id: uuid.UUID | None = None,
+    notebook_id: uuid.UUID | None = None,
     record_event: bool = True,
 ) -> tuple[Note, CaptureEvent | None]:
     note = Note(
@@ -77,6 +78,7 @@ async def create_note(
         confirmed=origin == NoteOrigin.user,  # the user said it, so nothing to confirm
         embedding=embedding,
         source_id=source_id,
+        notebook_id=notebook_id,
     )
     db.add(note)
     await db.flush()
@@ -133,6 +135,7 @@ async def update_note(
     confirmed: bool | None = None,
     fragile: bool | None = None,
     embedding: list[float] | None = None,
+    notebook_id: uuid.UUID | None | object = ...,
 ) -> Note:
     if title is not None:
         note.title = title
@@ -144,6 +147,8 @@ async def update_note(
         note.fragile = fragile
     if embedding is not None:
         note.embedding = embedding
+    if notebook_id is not ...:
+        note.notebook_id = notebook_id  # type: ignore[assignment]
     note.updated_at = datetime.now(UTC)
     await db.commit()
     return note

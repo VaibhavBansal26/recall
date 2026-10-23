@@ -8,6 +8,7 @@ from app.db.models import (
     BriefStatus,
     DiagramKind,
     LinkKind,
+    NotebookKind,
     NoteOrigin,
     PromptKind,
     SourceKind,
@@ -70,6 +71,8 @@ class NotePatch(BaseModel):
     body_md: str | None = Field(default=None, min_length=1)
     confirmed: bool | None = None
     fragile: bool | None = None
+    # Present (even as null) means "move it": null unfiles the note.
+    notebook_id: uuid.UUID | None = None
 
 
 class NoteOut(BaseModel):
@@ -80,6 +83,28 @@ class NoteOut(BaseModel):
     origin: NoteOrigin
     confirmed: bool
     fragile: bool = False
+    notebook_id: uuid.UUID | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class NotebookCreate(BaseModel):
+    track: str = Field(description="Track slug")
+    name: str = Field(min_length=1, max_length=120)
+    kind: NotebookKind = NotebookKind.notes
+
+
+class NotebookPatch(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class NotebookOut(BaseModel):
+    id: uuid.UUID
+    track: str
+    name: str
+    kind: NotebookKind
+    note_count: int
+    source_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -78,6 +78,7 @@ async def capture_node(deps: AgentDeps, state: AgentState) -> AgentState:
                 embedding=embedding,
                 origin=NoteOrigin.user,
                 session_id=state.session_id,
+                notebook_id=state.notebook_id,
             )
             items.append(capture_item(event, note))
 

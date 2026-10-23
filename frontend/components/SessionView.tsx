@@ -13,6 +13,7 @@ import { getDiagram, getDue, listNotes, listTracks, setNoteConfirmed, undoCaptur
 import { MicCapture, PcmPlayer } from "@/lib/audio";
 import type { ServerEvent } from "@/lib/events";
 import { useSessionStore } from "@/lib/store";
+import { StudyPanel } from "@/components/StudyPanel";
 import { TeachBackPanel } from "@/components/TeachBackPanel";
 import { useTrack } from "@/lib/track";
 import { useRefreshOnFocus } from "@/lib/useRefreshOnFocus";
@@ -31,6 +32,10 @@ interface Props {
   quizNoteId?: string | null;
   /** Run today's spoken daily brief. */
   briefId?: string | null;
+  /** Open this notebook so new notes go into it (from the Notebooks page). */
+  openNotebookId?: string | null;
+  /** Recite this notebook as soon as the session is ready. */
+  reciteNotebookId?: string | null;
 }
 
 export function SessionView({
@@ -38,6 +43,8 @@ export function SessionView({
   autoQuiz = false,
   quizNoteId = null,
   briefId = null,
+  openNotebookId = null,
+  reciteNotebookId = null,
 }: Props) {
   const s = useSessionStore();
   const { track: TRACK, hydrated, hydrate } = useTrack();
@@ -94,13 +101,25 @@ export function SessionView({
     }
   }, [selectedId, selectedDiagram, setDiagram]);
 
+  // The track this socket's session is in. A spoken "under dsa" moves the session on the server;
+  // we follow it here without reconnecting.
+  const connectedTrack = useRef<string | null>(null);
+  const trackRef = useRef(TRACK);
+  trackRef.current = TRACK;
+  const { setTrack: setGlobalTrack } = useTrack();
+
   const onEvent = useCallback(
     (event: ServerEvent) => {
       if (event.type === "audio") player.current.enqueue(event.data);
       if (event.type === "interrupted") player.current.flush();
+      if (event.type === "session" && event.track !== connectedTrack.current) {
+        connectedTrack.current = event.track;
+        setGlobalTrack(event.track);
+        listNotes(event.track).then(setNotes).catch(() => undefined);
+      }
       apply(event);
     },
-    [apply],
+    [apply, setGlobalTrack, setNotes],
   );
 
   useEffect(() => {
@@ -108,8 +127,9 @@ export function SessionView({
     const audioOut = player.current;
     const voice = new VoiceSocket({ onEvent, onStatus: setConnection });
     socket.current = voice;
-    voice.connect(TRACK);
-    listNotes(TRACK).then(setNotes).catch(() => undefined);
+    connectedTrack.current = trackRef.current;
+    voice.connect(trackRef.current);
+    listNotes(trackRef.current).then(setNotes).catch(() => undefined);
 
     const capture = new MicCapture({
       onFrame: (pcm) => voice.sendAudio(pcm),
@@ -128,7 +148,15 @@ export function SessionView({
       void capture.stop();
       audioOut.flush();
     };
-  }, [onEvent, setConnection, setNotes, TRACK, hydrated]);
+  }, [onEvent, setConnection, setNotes, hydrated]);
+
+  // The user picked another track in the top bar: start a session there.
+  useEffect(() => {
+    if (!hydrated || !socket.current || connectedTrack.current === TRACK) return;
+    connectedTrack.current = TRACK;
+    socket.current.connect(TRACK);
+    listNotes(TRACK).then(setNotes).catch(() => undefined);
+  }, [TRACK, hydrated, setNotes]);
 
   const ready = s.connection === "connected" && !!s.sessionId;
 
@@ -139,6 +167,19 @@ export function SessionView({
       socket.current?.send({ type: "quiz", note_id: quizNoteId, brief_id: briefId });
     }
   }, [autoQuiz, ready, quizNoteId, briefId]);
+
+  const handedOver = useRef(false);
+  useEffect(() => {
+    if (!ready || handedOver.current) return;
+    if (reciteNotebookId) {
+      handedOver.current = true;
+      void player.current.unlock().catch(() => undefined);
+      socket.current?.send({ type: "recite_start", notebook_id: reciteNotebookId });
+    } else if (openNotebookId) {
+      handedOver.current = true;
+      socket.current?.send({ type: "notebook_open", notebook_id: openNotebookId });
+    }
+  }, [ready, openNotebookId, reciteNotebookId]);
 
   async function enableMic(mode: Exclude<MicMode, "off">) {
     setMicError(null);
@@ -385,6 +426,24 @@ export function SessionView({
               markSaved();
               void listNotes(TRACK).then(syncNotes);
             }}
+          />
+        )}
+        {variant === "session" && (
+          <StudyPanel
+            track={TRACK}
+            mode={s.mode}
+            active={s.notebook}
+            ready={ready}
+            onOpen={(id) => socket.current?.send({ type: "notebook_open", notebook_id: id })}
+            onRecite={(id) => {
+              void player.current.unlock();
+              socket.current?.send({ type: "recite_start", notebook_id: id });
+            }}
+            onDiscuss={(t) => {
+              void player.current.unlock();
+              socket.current?.send({ type: "discuss_start", topic: t });
+            }}
+            onSay={say}
           />
         )}
         {variant === "session" && (

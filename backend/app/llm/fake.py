@@ -10,11 +10,13 @@ from app.agent.schemas import (
     BeatCheck,
     CandidateNote,
     DiagramDraft,
+    DiscussionSummary,
     ExtractedNotes,
     LinkProposal,
     LinkProposals,
     MergeResult,
     QuizTurn,
+    ReciteExplain,
     ReviewDraft,
     ReviewDrafts,
     SourceCitation,
@@ -212,6 +214,35 @@ class FakeLLM(LLMClient):
                     applicable=True, array=["1", "3", "5", "7", "9", "11"], steps=walk_steps
                 ).model_dump()
             )
+        if schema is ReciteExplain:
+            note = _field(user, "NOTE") or user
+            return schema.model_validate(
+                ReciteExplain(
+                    text=f"In plain words, {note.split('.')[0].lower()}. "
+                    "Think of it like a shortcut you use every day, and it matters because it "
+                    "saves you work later."
+                ).model_dump()
+            )
+        if schema is DiscussionSummary:
+            problem = _field(user, "PROBLEM") or "the problem"
+            return schema.model_validate(
+                DiscussionSummary(
+                    verdict=(
+                        "You covered the core approach well. The biggest gap is failure handling. "
+                        "Next, work out how it scales."
+                    ),
+                    decision="No decision yet"
+                    if "NOTES:\n(no notes" in user
+                    else "Use the first design",
+                    evaluation_md=(
+                        f"## Requirements\n- Discussed for {problem}.\n"
+                        "## Approach\n- The learner's approach.\n"
+                        "## Tradeoffs\n- Simplicity against scale.\n"
+                        "## Gaps and risks\n- Failure handling was not covered.\n"
+                        "## Next steps\n- Estimate capacity."
+                    ),
+                ).model_dump()
+            )
         if schema is WhyMatters:
             return schema.model_validate(
                 WhyMatters(
@@ -276,7 +307,25 @@ class FakeLLM(LLMClient):
                 "Does that make sense?",
             ),
             "chitchat": ("Happy to help. ", "Shall we get back to learning?"),
+            "discuss": (
+                "That's a reasonable start. ",
+                "The main risk is the single database. ",
+                "My suggestion is to partition the data by user. ",
+                "How would you handle a hot partition?",
+            ),
+            "discuss_choose": (
+                "Okay, let's do a design discussion. ",
+                "What problem would you like to work through?",
+            ),
+            "discuss_open": (
+                f"Okay, let's work through {_field(user, 'PROBLEM') or 'it'}. ",
+                "Who will use it, and roughly how much traffic should it handle?",
+            ),
         }
+        if purpose == "discuss" and "STAGE: open" in user:
+            purpose = "discuss_open"
+        elif purpose == "discuss" and "STAGE: choose" in user:
+            purpose = "discuss_choose"
         for token in scripts.get(purpose, scripts["ack"]):
             await asyncio.sleep(self._delay_s)
             yield token

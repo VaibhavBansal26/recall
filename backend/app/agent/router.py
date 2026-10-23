@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel
 
+from app.agent import commands
 from app.agent.prompts import load_prompt
 from app.llm.client import LLMClient
 
@@ -22,6 +23,7 @@ class Mode(enum.StrEnum):
     recall_quiz = "recall_quiz"
     teach_back = "teach_back"
     ingest_review = "ingest_review"
+    discuss = "discuss"
     chitchat = "chitchat"
 
 
@@ -30,6 +32,8 @@ class Route:
     mode: Mode
     topic: str | None = None
     command: str | None = None  # a mode-specific control word, e.g. "next", "hint", "start"
+    track: str | None = None  # switch to this track first (spoken "under dsa")
+    names: tuple[str, ...] = ()  # notebook names
 
 
 class RouteDecision(BaseModel):
@@ -75,6 +79,11 @@ _BRIEF = _rx(r"\b(daily|morning) brief(ing)?\b|\bmy brief\b|\bstart (the |my )?b
 _INGEST_START = _rx(
     r"\b(what did you (file|add)|what'?s new|any new (material|sources?|notes)|"
     r"review (the )?(new )?(material|sources?)|what (was|got) filed|new material)\b"
+)
+# After "I filed 7 notes, shall I keep them?": "yes, recite them" / "explain it to me" keeps them
+# and starts reciting the notebook built around the source.
+_INGEST_RECITE = _rx(
+    r"\b(recit\w*|explain (?:it|them|that|this)|walk me through|teach me|go through)\b"
 )
 _INGEST_COMMANDS = [
     ("end", _rx(r"\b(later|not now|stop|skip|leave it|cancel)\b")),
@@ -129,6 +138,8 @@ def route_by_rules(text: str, current: Mode) -> Route | None:
         return Route(Mode.teach_back, command="segment")  # sticky: this is part of the explanation
 
     if current == Mode.ingest_review:
+        if commands.parse_recite(text) or _INGEST_RECITE.search(text):
+            return Route(Mode.ingest_review, command="recite")
         for command, pattern in _INGEST_COMMANDS:
             if pattern.search(text) and len(text.split()) <= 8:
                 return Route(Mode.ingest_review, command=command)
@@ -139,8 +150,19 @@ def route_by_rules(text: str, current: Mode) -> Route | None:
             if pattern.search(text) and len(text.split()) <= 6:
                 return Route(Mode.read_back, command=command)
 
+    if current == Mode.discuss:
+        followup = commands.discuss_followup(text)
+        return Route(Mode.discuss, command=followup or "turn")
     if _END_SESSION.search(text):
         return Route(Mode.chitchat, command="end_session")
+    if discuss := commands.parse_discuss(text):
+        return Route(Mode.discuss, topic=discuss.topic, command="start", track=discuss.track)
+    if nb := commands.parse_notebook(text):
+        return Route(Mode.capture, command=f"notebook_{nb.kind}", names=nb.names, track=nb.track)
+    if commands.is_draw(text):
+        return Route(Mode.capture, command="draw")
+    if recite := commands.parse_recite(text):
+        return Route(Mode.read_back, topic=recite.topic, command="recite", track=recite.track)
     if m := _TEACH_BACK_LET_ME.search(text):
         return Route(
             Mode.teach_back, topic=_clean_topic(m.group(1), strip_work=False), command="start"

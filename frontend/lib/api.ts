@@ -20,6 +20,7 @@ export function toNoteCard(n: NoteOut): NoteCard {
     origin: n.origin,
     confirmed: n.confirmed,
     fragile: n.fragile ?? false,
+    notebookId: n.notebook_id ?? null,
     change: null,
   };
 }
@@ -181,4 +182,51 @@ export async function getStats(track?: string): Promise<StatsOut> {
 /** Today's brief if it is waiting to be started, else null. */
 export async function getReadyBrief(): Promise<BriefOut | null> {
   return json(await apiFetch("/api/briefs/ready"), "GET brief");
+}
+
+
+export type NotebookOut = components["schemas"]["NotebookOut"];
+
+export async function listNotebooks(track?: string): Promise<NotebookOut[]> {
+  const q = track ? `?track=${encodeURIComponent(track)}` : "";
+  return json(await apiFetch(`/api/notebooks${q}`), "GET notebooks");
+}
+
+export async function createNotebook(track: string, name: string): Promise<NotebookOut> {
+  const res = await apiFetch("/api/notebooks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ track, name }),
+  });
+  return json(res, "POST notebook");
+}
+
+export async function renameNotebook(id: string, name: string): Promise<NotebookOut> {
+  const res = await apiFetch(`/api/notebooks/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  return json(res, "PATCH notebook");
+}
+
+export async function deleteNotebook(id: string): Promise<void> {
+  const res = await apiFetch(`/api/notebooks/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`DELETE notebook failed: ${res.status}`);
+}
+
+export async function listNotebookNotes(id: string): Promise<NoteCard[]> {
+  const res = await apiFetch(`/api/notebooks/${id}/notes`);
+  if (!res.ok) throw new Error(`GET notebook notes failed: ${res.status}`);
+  return ((await res.json()) as NoteOut[]).map(toNoteCard);
+}
+
+/** Move a note into a notebook, or out of all of them with null. */
+export async function moveNote(noteId: string, notebookId: string | null): Promise<void> {
+  const res = await apiFetch(`/api/notes/${noteId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ notebook_id: notebookId }),
+  });
+  if (!res.ok) throw new Error(`Move note failed: ${res.status}`);
 }

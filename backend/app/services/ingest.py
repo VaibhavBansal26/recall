@@ -19,6 +19,7 @@ from app.agent.state import AgentState, CaptureItem
 from app.db.models import (
     CaptureEvent,
     Note,
+    NotebookKind,
     NoteCitation,
     NoteLink,
     NoteOrigin,
@@ -34,6 +35,7 @@ from app.ingest.citations import normalize, quote_in_chunk
 from app.ingest.extract import html_to_text, pdf_to_text, youtube_to_text
 from app.ingest.fetch import SafeFetcher
 from app.ingest.urls import detect_kind, normalize_url, youtube_video_id
+from app.services import notebooks as notebooks_svc
 from app.services.capture import file_candidate
 from app.services.sessions import get_track, list_tracks
 from app.tracks import guidance_for
@@ -353,6 +355,15 @@ async def _file(
     async with ctx.deps.sessionmaker() as db:
         track_row = await get_track(db, track.slug)
         assert track_row is not None
+        # Everything a source yields goes into one notebook named after it, so it can be recited.
+        source_row = await db.get(Source, source_id)
+        notebook_id = None
+        if source_row is not None:
+            name = source_row.title or source_row.topic or "Imported source"
+            book, _ = await notebooks_svc.get_or_create(
+                db, track_row, name[:120], NotebookKind.source, source_id=source_id
+            )
+            notebook_id = book.id
         for cand, embedding in zip(candidates, embeddings, strict=True):
             event, note = await file_candidate(
                 ctx.deps,
@@ -364,6 +375,7 @@ async def _file(
                 origin=NoteOrigin.source,
                 source_id=source_id,
                 usage_id=source_id,
+                notebook_id=notebook_id,
             )
             for idx, quote in cand.citations:
                 db.add(
