@@ -71,7 +71,7 @@ class ElevenLabsStt(SttSession):
     async def connect(
         cls, settings: Settings, *, silence_ms: int, on_event: SttCallback
     ) -> "ElevenLabsStt":
-        params = {
+        params: dict[str, Any] = {
             "model_id": settings.elevenlabs_stt_model,
             "audio_format": "pcm_16000",
             "commit_strategy": "vad",
@@ -79,10 +79,18 @@ class ElevenLabsStt(SttSession):
             "include_timestamps": "true",
             "language_code": settings.stt_language,
         }
-        ws = await connect(
-            f"wss://api.elevenlabs.io/v1/speech-to-text/realtime?{urlencode(params)}",
-            additional_headers={"xi-api-key": settings.elevenlabs_api_key},
-        )
+        headers = {"xi-api-key": settings.elevenlabs_api_key}
+        base = "wss://api.elevenlabs.io/v1/speech-to-text/realtime"
+        if settings.stt_keyterms:
+            try:
+                biased = {**params, "keyterms": settings.stt_keyterms}
+                ws = await connect(
+                    f"{base}?{urlencode(biased, doseq=True)}", additional_headers=headers
+                )
+                return cls(ws, on_event)
+            except Exception:
+                log.warning("elevenlabs stt refused keyterms; connecting without them")
+        ws = await connect(f"{base}?{urlencode(params)}", additional_headers=headers)
         return cls(ws, on_event)
 
     async def _send_chunk(self, pcm: bytes, *, commit: bool) -> None:

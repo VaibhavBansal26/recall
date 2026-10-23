@@ -2,6 +2,23 @@
 
 Newest first. Anything that differs from `CLAUDE.md` goes here with the reason.
 
+## Speech fixes and "write the notes" (from a live session)
+
+- **Real speech is messy**, so rules run on normalised text: "uh/um" dropped, "TSA" / "D S A" read as DSA,
+  and when the speaker restarts ("can you build nodes, can you build a node for X") only the last attempt is
+  used. "node" is accepted for "note" in notebook commands. Many natural ways to stop ("let's stop the
+  conversation") now end the session. The recogniser is biased towards DSA, Aria, binary search etc.
+  (`STT_KEYTERMS`); if ElevenLabs refuses that option, it connects without it.
+- **A question is never filed as a note.** If the router calls a question "capture", Aria answers it
+  conversationally instead of "keep going".
+- **She no longer recites her abilities.** The persona only describes them when asked ("what can you do").
+  Confirmations are one short sentence.
+- **"Write the notes" is explicit.** "Create a notes file for X" makes an empty notebook for you to fill by
+  talking. "Under dsa put binary search as the topic and create notes on that", "... and write the notes",
+  "write notes on hash maps" or "write the notes" (into the open notebook) also has Aria draft 4 to 7 starter
+  notes. They are stored as **assistant-origin, unconfirmed** (rule 6) and shown differently until accepted.
+  She is told to include only facts she is sure of; they are still model-written, so check them.
+
 ## Aria (the assistant's name and self-awareness)
 
 - **The assistant is called Aria.** One persona prompt (`agent/prompts/aria.md`) is put in front of every

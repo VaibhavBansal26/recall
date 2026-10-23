@@ -14,6 +14,12 @@ class ExtractedNotes(BaseModel):
     notes: list[CandidateNote] = Field(default_factory=list)
 
 
+class DraftedNotes(BaseModel):
+    """Starter notes the assistant writes on a topic when asked ("write the notes")."""
+
+    notes: list[CandidateNote] = Field(default_factory=list)
+
+
 class MergeResult(BaseModel):
     body_md: str = Field(description="Existing note and the new statement combined, 1-5 sentences")
 

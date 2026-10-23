@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     stt_provider: Literal["elevenlabs", "deepgram"] = "elevenlabs"
     stt_language: str = "en"
     elevenlabs_stt_model: str = "scribe_v2_realtime"
+    # Words the recogniser should lean towards (it hears "DSA" as "TSA" otherwise).
+    stt_keyterms: list[str] = [
+        "DSA", "Aria", "Recall", "notebook", "notes file", "binary search", "hash map",
+        "two pointers", "RAG", "embeddings", "LLM", "system design", "teach back",
+    ]  # fmt: skip
     deepgram_api_key: str = ""
     stt_model: str = "nova-3"  # Deepgram model
     elevenlabs_api_key: str = ""

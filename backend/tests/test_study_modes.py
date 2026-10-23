@@ -34,7 +34,8 @@ def test_creating_a_notes_file_by_voice_switches_track_and_files_notes_into_it(
         nb = conv.kind("notebook", name="Binary search")
         assert nb["track"] == "dsa" and nb["created"] is True and nb["kind"] == "notes"
         conv.kind("assistant_done")
-        assert "Binary search" in conv.spoken() and "goes into it" in conv.spoken()
+        assert "Binary search is open in" in conv.spoken()
+        assert "Anything you say" not in conv.spoken()  # short confirmation, no repeated intro
 
         conv.say("Binary search halves the sorted range on every single step.")
         conv.kind("notes")
@@ -52,7 +53,7 @@ def test_several_files_at_once_start_with_the_first(client: TestClient) -> None:
         conv.say("create notes files for binary and hashmap under dsa")
         conv.kind("notebook", name="Binary")
         conv.kind("assistant_done")
-        assert "2 notes files" in conv.spoken() and "open Hashmap notes" in conv.spoken()
+        assert "2 notes files" in conv.spoken() and "start with Binary" in conv.spoken()
     assert {b["name"] for b in notebooks(client, "dsa")} == {"Binary", "Hashmap"}
 
 
@@ -355,3 +356,72 @@ def test_control_words_and_answers_are_not_mistaken_for_questions(client: TestCl
         "what do you mean by range",
     ):
         assert is_side_question(text), text
+
+
+# ---- "under dsa put binary search as the topic and create notes on that" ----
+
+
+def test_putting_a_topic_under_dsa_and_asking_for_notes_makes_the_notebook_and_writes_them(
+    client: TestClient,
+) -> None:
+    with client.websocket_connect("/ws/voice") as ws:
+        conv = Conv(ws)
+        conv.start("ai-eng")
+        conv.say("Okay, under DSA put binary search as the topic and create notes on that.")
+        conv.kind("session", track="dsa")
+        conv.kind("notebook", name="Binary search")
+        written = conv.kind("notes")
+        assert len(written["items"]) == 4
+        assert all(i["origin"] == "assistant" and i["confirmed"] is False for i in written["items"])
+        conv.kind("assistant_done")
+        spoken = conv.spoken()
+        assert "I wrote 4 notes on Binary search" in spoken and "marked as mine" in spoken
+        assert "I can capture" not in spoken  # she does not recite her abilities
+
+    [book] = client.get("/api/notebooks?track=dsa").json()
+    notes = client.get(f"/api/notebooks/{book['id']}/notes").json()
+    assert book["note_count"] == 4 and all(n["origin"] == "assistant" for n in notes)
+
+
+def test_the_same_again_for_other_topics_under_dsa(client: TestClient) -> None:
+    with client.websocket_connect("/ws/voice") as ws:
+        conv = Conv(ws)
+        conv.start("dsa")
+        conv.say("write notes on hash maps")
+        conv.kind("notes")
+        conv.kind("assistant_done")
+        conv.say("write notes on two pointers")
+        conv.kind("notes")
+        conv.kind("assistant_done")
+    names = {b["name"]: b["note_count"] for b in client.get("/api/notebooks?track=dsa").json()}
+    assert names == {"Hash maps": 4, "Two pointers": 4}
+
+
+def test_write_the_notes_fills_the_open_notebook_and_asks_for_a_topic_when_none_is_open(
+    client: TestClient,
+) -> None:
+    with client.websocket_connect("/ws/voice") as ws:
+        conv = Conv(ws)
+        conv.start("dsa")
+        conv.say("write the notes")
+        conv.kind("assistant_done")
+        assert "Which topic should I write notes on" in conv.spoken()
+
+        conv.say("create a new notes file for graphs under dsa")
+        conv.kind("notebook", name="Graphs")
+        conv.kind("assistant_done")
+        conv.say("write the notes")
+        assert len(conv.kind("notes")["items"]) == 4
+    [book] = client.get("/api/notebooks?track=dsa").json()
+    assert book["name"] == "Graphs" and book["note_count"] == 4
+
+
+def test_a_plain_notes_file_request_does_not_write_anything(client: TestClient) -> None:
+    with client.websocket_connect("/ws/voice") as ws:
+        conv = Conv(ws)
+        conv.start("dsa")
+        conv.say("create a new notes file for tries under dsa")
+        conv.kind("notebook", name="Tries")
+        conv.kind("assistant_done")
+        assert not conv.of("notes")
+    assert client.get("/api/notebooks?track=dsa").json()[0]["note_count"] == 0

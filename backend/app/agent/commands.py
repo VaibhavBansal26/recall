@@ -31,7 +31,7 @@ TRACK_ALIASES: list[tuple[str, str]] = [
 _ALIAS_RX = "|".join(re.escape(a) for a, _ in sorted(TRACK_ALIASES, key=lambda p: -len(p[0])))
 _TRACK_TAIL = r"(?:\s+(?:folder|track|section|directory|category|notes))?"
 
-NOTEBOOK_WORDS = r"(?:notes?|notebooks?|files?|folders?|directory|directories)"
+NOTEBOOK_WORDS = r"(?:notes?|nodes?|notebooks?|files?|folders?|directory|directories)"  # "node" is a common mishearing of "note"
 
 
 def _rx(pattern: str) -> re.Pattern[str]:
@@ -48,9 +48,10 @@ def track_for(phrase: str) -> str | None:
 
 @dataclass(frozen=True)
 class NotebookCommand:
-    kind: str  # "new" | "open" | "close"
+    kind: str  # "new" | "open" | "close" | "draft"
     names: tuple[str, ...] = ()
     track: str | None = None
+    draft: bool = False  # also have Aria write starter notes on the topic
 
 
 @dataclass(frozen=True)
@@ -75,9 +76,9 @@ class _Parsed:
 _LEAD = r"^\W*(?:(?:ok(?:ay)?|alright|please|hey|so|now|can you|could you|i want to|i'd like to|i would like to|let'?s)[, ]+)*"
 
 _NEW = _rx(
-    _LEAD
-    + r"(?:create|make|start|add|begin|set up|open)\s+(?:me\s+)?(?:a\s+|an\s+|some\s+|one\s+)?"
-    r"(?:\d+\s+)?(?:new\s+)?(?:\w+\s+)?" + NOTEBOOK_WORDS + r"(?:\s+file)?\s+"
+    _LEAD + r"(?:create|make|build|generate|prepare|put together|start|add|begin|set up|open)\s+"
+    r"(?:me\s+)?(?:a\s+|an\s+|some\s+|one\s+)?"
+    r"(?:\d+\s+)?(?:new\s+)?(?:\w+\s+)?" + NOTEBOOK_WORDS + r"(?:\s+file)?[,;]?\s+"
     r"(?:for|on|about|called|named|titled|to cover|covering)\s+(?P<rest>.+?)[.?!]?\s*$"
 )
 # "under dsa create a new note for binary search"
@@ -146,6 +147,23 @@ _DRAW = _rx(
 )
 
 
+_FILLERS = _rx(r"(?:^|(?<=\W))(?:uh+|um+|erm*|hmm+|mm+)\b[,.]?\s*")
+_SPELLED_DSA = _rx(r"\b(?:tsa|d\.?\s?s\.?\s?a\.?)(?=\W|$)")
+_CAN_YOU = _rx(r"\b(?:can|could) you\b")
+
+
+def normalize(text: str) -> str:
+    """Make a spoken sentence easier to match: drop "uh"/"um", keep only the last attempt when the
+    speaker restarts ("can you build nodes, can you build a node for X"), and fix the usual
+    mishearing of "DSA" ("TSA", "D S A")."""
+    text = _FILLERS.sub("", text)
+    text = _SPELLED_DSA.sub("dsa", text)
+    starts = [m.start() for m in _CAN_YOU.finditer(text)]
+    if len(starts) >= 2:
+        text = text[starts[-1] :]
+    return re.sub(r"\s{2,}", " ", text).strip()
+
+
 def split_names(rest: str) -> list[str]:
     """ "binary search and hash map" or "binary, hashmap" -> one name per file."""
     parts = re.split(r"\s*(?:,|;|&|\band\b|\bplus\b)\s*", rest)
@@ -166,16 +184,73 @@ def _with_track(rest: str) -> _Parsed:
     return parsed
 
 
+_VERB = r"(?:create|make|write|draft|generate|build|prepare)"
+# "... and create notes on that": ask for starter notes as well as the notebook.
+_DRAFT_TAIL = _rx(
+    r"[, ]+(?:and\s+|then\s+|and then\s+|also\s+)?(?:please\s+)?"
+    + _VERB
+    + r"\s+(?:the\s+|me\s+|some\s+)?(?:notes?|it|them)"
+    r"(?:\s+(?:on|about|for|covering)\s+(?:that|it|this|them|the topic))?[.?!]?\s*$"
+)
+# "under dsa, put binary search as the topic" (the track may come before or after)
+_PUT_AS_TOPIC = _rx(
+    r"\b(?:put|set|use|make|take)\s+(?P<name>[^,]+?)\s+as\s+(?:the\s+|a\s+|my\s+)?"
+    r"(?:topic|file|notebook|subject|title)\b(?P<after>.*)$"
+)
+_ANY_TRACK = _rx(r"\b(?:under|in|inside|within|for)\s+(?:the\s+)?(?P<track>" + _ALIAS_RX + r")\b")
+# "write the notes", "draft notes on hash maps", "fill it in", "create notes on that"
+_DRAFT = _rx(
+    r"^\W*(?:(?:ok(?:ay)?|please|now|so|and|can you|could you|just)[, ]+)*"
+    r"(?:(?:write|draft|generate|prepare|fill(?: in)?)\s+(?:me\s+)?(?:the\s+|some\s+)?"
+    r"(?:notes?|it|them)|fill\s+(?:it|them)\s+in|(?:create|make|build)\s+(?:me\s+)?the\s+notes?|"
+    r"(?:create|make|build)\s+(?:me\s+)?(?:some\s+)?notes?(?=\s+(?:on|about)\s+(?:that|it|this|them)\b))"
+    r"(?:\s+(?:on|about|for|covering)\s+(?P<topic>.+?))?(?:\s+(?:for me|please))?[.?!]?\s*$"
+)
+
+
+_DEICTIC_NAMES = {"that", "it", "this", "them", "these", "those", "the topic"}
+
+
 def parse_notebook(text: str) -> NotebookCommand | None:
     if _CLOSE.match(text):
         return NotebookCommand("close")
+    if m := _PUT_AS_TOPIC.search(text):
+        names = split_names(m.group("name"))
+        after = m.group("after")
+        track_hit = _ANY_TRACK.search(text)
+        track = track_for(track_hit.group("track")) if track_hit else None
+        if names:
+            draft = bool(
+                re.search(r"\b" + _VERB + r"\s+(?:the\s+|me\s+|some\s+)?notes?\b", after, re.I)
+            )
+            return NotebookCommand("new", tuple(names), track, draft)
     if m := _NEW_TRACK_FIRST.match(text):
-        names = split_names(m.group("rest"))
-        return NotebookCommand("new", tuple(names), track_for(m.group("track"))) if names else None
+        rest = m.group("rest")
+        draft = bool(tail := _DRAFT_TAIL.search(rest))
+        if tail:
+            rest = rest[: tail.start()]
+        names = split_names(rest)
+        if names:
+            return NotebookCommand("new", tuple(names), track_for(m.group("track")), draft)
+        return None
     if m := _NEW.match(text):
-        parsed = _with_track(m.group("rest"))
-        if parsed.names:
-            return NotebookCommand("new", tuple(parsed.names), parsed.track)
+        rest = m.group("rest")
+        draft = bool(tail := _DRAFT_TAIL.search(rest))
+        if tail:
+            rest = rest[: tail.start()]
+        parsed = _with_track(rest)
+        if parsed.names and parsed.names[0].lower() not in _DEICTIC_NAMES:
+            return NotebookCommand("new", tuple(parsed.names), parsed.track, draft)
+    if m := _DRAFT.match(text):
+        topic = (m.group("topic") or "").strip(" .,")
+        if topic.lower() in {"", "it", "that", "this", "them", "the topic"}:
+            return NotebookCommand("draft")
+        parsed = _with_track(topic)
+        return (
+            NotebookCommand("draft", tuple(parsed.names), parsed.track)
+            if parsed.names
+            else NotebookCommand("draft")
+        )
     if m := _OPEN.match(text):
         name = m.group("name").strip()
         if name and name.lower() not in {"the", "my", "this", "that", "new"}:

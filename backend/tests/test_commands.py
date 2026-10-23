@@ -158,3 +158,102 @@ def test_the_first_answer_names_a_generic_discussion() -> None:
     )
     assert c.problem_from("I want to discuss a rate limiter") == "rate limiter"
     assert c.problem_from("...") == "System design"
+
+
+# ---- what real speech looks like (from a live session) ----
+
+
+def test_the_exact_sentence_from_the_live_session_creates_the_notebook() -> None:
+    from app.agent.router import Mode, route_by_rules
+
+    heard = "Okay, can you build nodes, uh, can you build a node, uh, for binary search in TSA?"
+    route = route_by_rules(heard, Mode.capture)
+    assert route is not None
+    assert (route.command, route.names, route.track) == ("notebook_new", ("binary search",), "dsa")
+
+
+@pytest.mark.parametrize(
+    ("spoken", "clean"),
+    [
+        (
+            "um, create a notes file for graphs under D S A",
+            "create a notes file for graphs under dsa",
+        ),
+        (
+            "so uh can you make a note for tries in D.S.A.",
+            "so can you make a note for tries in dsa",
+        ),
+        ("can you build nodes, can you build a node for heaps", "can you build a node for heaps"),
+        ("the TSA line was long", "the dsa line was long"),
+    ],
+)
+def test_speech_is_tidied_before_matching(spoken: str, clean: str) -> None:
+    assert c.normalize(spoken) == clean
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Okay, let's stop the conversation.",
+        "let's end the session",
+        "can we stop now",
+        "I want to stop the chat",
+        "okay stop talking",
+    ],
+)
+def test_natural_ways_to_end_the_session(text: str) -> None:
+    from app.agent.router import Mode, Route, route_by_rules
+
+    assert route_by_rules(text, Mode.capture) == Route(Mode.chitchat, command="end_session")
+
+
+# ---- "put binary search as the topic and create notes on that" ----
+
+
+@pytest.mark.parametrize(
+    ("text", "names", "track", "draft"),
+    [
+        (
+            "Okay, under DSA put binary search as the topic and create notes on that.",
+            ("binary search",),
+            "dsa",
+            True,
+        ),
+        ("under dsa, put hash maps as the topic", ("hash maps",), "dsa", False),
+        (
+            "put two pointers as the topic under dsa and write the notes",
+            ("two pointers",),
+            "dsa",
+            True,
+        ),
+        ("create a notes file for heaps under dsa and write the notes", ("heaps",), "dsa", True),
+        ("create a notes file for tries under dsa", ("tries",), "dsa", False),
+    ],
+)
+def test_topics_with_or_without_written_notes(
+    text: str, names: tuple[str, ...], track: str | None, draft: bool
+) -> None:
+    cmd = c.parse_notebook(text)
+    assert cmd == c.NotebookCommand("new", names, track, draft)
+
+
+@pytest.mark.parametrize(
+    ("text", "names"),
+    [
+        ("write the notes", ()),
+        ("create the notes", ()),
+        ("create notes on that", ()),
+        ("fill it in", ()),
+        ("draft notes on hash maps", ("hash maps",)),
+        ("can you write notes about binary search in dsa", ("binary search",)),
+    ],
+)
+def test_asking_aria_to_write_the_notes(text: str, names: tuple[str, ...]) -> None:
+    cmd = c.parse_notebook(text)
+    assert cmd is not None and cmd.kind == "draft" and cmd.names == names
+
+
+def test_sentences_that_only_mention_notes_are_not_draft_commands() -> None:
+    for text in ("write the notes app in python", "I will create notes later", "notes are useful"):
+        cmd = c.parse_notebook(text)
+        assert cmd is None or cmd.kind != "draft", text

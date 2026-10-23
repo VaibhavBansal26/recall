@@ -187,3 +187,9 @@ what she can actually do and what is in your notebooks right now. Start a comman
 ("Aria, open my hash map notes"). When a new notes file appears (from an upload or another device) she mentions it
 and offers to recite it.
 
+### Topics under a track, and starter notes
+
+- "Under dsa put binary search as the topic" makes the notebook; add "and create notes on that" (or say "write the notes")
+  and Aria also writes 4 to 7 starter notes, marked as hers until you confirm them. Repeat for hash maps, two pointers, and so on.
+- "Write notes on hash maps" does the same in the current track. "Create a notes file for X" only makes the empty notebook.
+

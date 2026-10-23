@@ -11,6 +11,7 @@ from app.agent.schemas import (
     CandidateNote,
     DiagramDraft,
     DiscussionSummary,
+    DraftedNotes,
     ExtractedNotes,
     LinkProposal,
     LinkProposals,
@@ -212,6 +213,20 @@ class FakeLLM(LLMClient):
             return schema.model_validate(
                 WalkthroughDraft(
                     applicable=True, array=["1", "3", "5", "7", "9", "11"], steps=walk_steps
+                ).model_dump()
+            )
+        if schema is DraftedNotes:
+            topic = _field(user, "TOPIC") or "the topic"
+            parts = ("what it is", "how it works", "when to use it", "its cost")
+            return schema.model_validate(
+                DraftedNotes(
+                    notes=[
+                        CandidateNote(
+                            title=f"{topic}: {part}",
+                            body_md=f"A starter note on {topic} covering {part}.",
+                        )
+                        for part in parts
+                    ]
                 ).model_dump()
             )
         if schema is ReciteExplain:

@@ -34,6 +34,7 @@ class Route:
     command: str | None = None  # a mode-specific control word, e.g. "next", "hint", "start"
     track: str | None = None  # switch to this track first (spoken "under dsa")
     names: tuple[str, ...] = ()  # notebook names
+    draft: bool = False  # also write starter notes on the topic
 
 
 class RouteDecision(BaseModel):
@@ -69,9 +70,11 @@ _TEACH_BACK_CANCEL = _rx(r"^\W*(?:cancel|never ?mind|forget it|stop)\b")
 # Ending the whole session by voice. Anchored to the entire utterance so "stop words are removed"
 # is still a note; inside a quiz, read-back or teach-back the mode's own "stop" wins first.
 _END_SESSION = _rx(
-    r"^\W*(?:(?:ok(?:ay)?|alright|please|hey|right|so)[, ]+)*"
-    r"(?:stop|end|finish|close|quit|exit)(?:\s+(?:the|this|my))?"
-    r"(?:\s+(?:session|listening|recording|mic|microphone|conversation|app))?\W*$|"
+    r"^\W*(?:(?:ok(?:ay)?|alright|please|hey|right|so|now|let'?s|let us|we can|can we|"
+    r"i want to|i'd like to|i think we should)[, ]+)*"
+    r"(?:stop|end|finish|close|quit|exit)(?:\s+(?:the|this|my|our))?"
+    r"(?:\s+(?:session|listening|recording|mic|microphone|conversation|chat|talking|app))?"
+    r"(?:\s+(?:now|here|for now|for today))?\W*$|"
     r"^\W*(?:good ?bye|bye(?: bye)?|that'?s all(?: for (?:today|now))?|we'?re done|"
     r"i'?m done for (?:today|now)|see you(?: later| soon)?|talk to you later)\W*$"
 )
@@ -139,6 +142,7 @@ def _clean_topic(topic: str | None, *, strip_work: bool = True) -> str | None:
 
 def route_by_rules(text: str, current: Mode) -> Route | None:
     """A decisive route from the words alone, or None when the rules cannot tell."""
+    text = commands.normalize(text)
     addressed = _ADDRESS.sub("", text, count=1)  # "Aria, open my notes" is the same command
     if addressed != text:
         if not addressed.strip():
@@ -180,7 +184,13 @@ def route_by_rules(text: str, current: Mode) -> Route | None:
     if discuss := commands.parse_discuss(text):
         return Route(Mode.discuss, topic=discuss.topic, command="start", track=discuss.track)
     if nb := commands.parse_notebook(text):
-        return Route(Mode.capture, command=f"notebook_{nb.kind}", names=nb.names, track=nb.track)
+        return Route(
+            Mode.capture,
+            command=f"notebook_{nb.kind}",
+            names=nb.names,
+            track=nb.track,
+            draft=nb.draft,
+        )
     if commands.is_draw(text):
         return Route(Mode.capture, command="draw")
     if recite := commands.parse_recite(text):
@@ -228,6 +238,10 @@ async def route_turn(
         schema=RouteDecision,
         session_id=session_id,
     )
+    if decision.mode == Mode.capture:
+        # A question is never a note. Answer it as Aria, who knows what she can and cannot do,
+        # instead of "keep going".
+        return Route(Mode.chitchat)
     if decision.mode == Mode.teach_back:  # a start request needs a topic to listen for
         return Route(Mode.teach_back, topic=decision.topic, command="start")
     return Route(decision.mode, topic=decision.topic)

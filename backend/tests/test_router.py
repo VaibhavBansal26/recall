@@ -96,3 +96,9 @@ def test_the_llm_router_can_start_teach_back() -> None:
     llm = ScriptedLLM(RouteDecision(mode=Mode.teach_back))
     route = asyncio.run(route_turn(llm, "is this right?", Mode.capture))
     assert route == Route(Mode.teach_back, command="start")
+
+
+def test_a_question_the_router_calls_a_note_is_answered_conversationally_instead() -> None:
+    llm = ScriptedLLM(RouteDecision(mode=Mode.capture))
+    route = asyncio.run(route_turn(llm, "can you do my taxes for me?", Mode.capture))
+    assert route == Route(Mode.chitchat)

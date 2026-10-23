@@ -17,6 +17,7 @@ from app.agent.confusion import ConfusionTracker
 from app.agent.deps import AgentDeps
 from app.agent.graph import stream_capture
 from app.agent.nodes import discuss as discuss_node
+from app.agent.nodes import draft as draft_node
 from app.agent.nodes import explain as explain_node
 from app.agent.nodes import read_back as read_back_node
 from app.agent.nodes.capture import ack_stream, capture_item
@@ -50,6 +51,7 @@ from app.services import notebooks as notebooks_svc
 from app.services import notes as notes_svc
 from app.services import retrieval
 from app.services import sessions as svc
+from app.services.capture import file_candidate
 from app.tracks import Endpointing
 from app.voice.barge_in import BargeInDetector
 from app.voice.events import (
@@ -1018,12 +1020,13 @@ class _Connection:
         command = route.command
         if command == "notebook_close":
             await self._activate_notebook(None)
-            self._start_reply(
-                _once("Okay, closed it. New notes won't go into a notebook."), latency
-            )
+            self._start_reply(_once("Okay, closed it."), latency)
             return
         if not await self._switch_track(route.track):
             self._start_reply(_once("I don't have a folder with that name."), latency)
+            return
+        if command == "notebook_draft":
+            await self._handle_draft(route, latency)
             return
         async with self.deps.sessionmaker() as db:
             track = await svc.get_track(db, self.track)
@@ -1051,30 +1054,109 @@ class _Connection:
             return
         await self._activate_notebook(first, created=first_created)
         if command == "notebook_open":
-            spoken = (
-                f"Opened {first.name}. It has {count} note{'s' if count != 1 else ''}. "
-                "Anything you say now goes into it."
-            )
+            spoken = f"Opened {first.name}. It has {count} note{'s' if count != 1 else ''}."
         elif len(books) > 1:
-            others = " and ".join(b.name for b in books[1:])
-            spoken = (
-                f"Done, {len(books)} notes files in {track_name}: "
-                f"{', '.join(b.name for b in books)}. I'll start with {first.name}. "
-                f"Say open {others} notes to switch."
+            spoken = f"Done, {len(books)} notes files in {track_name}: " + ", ".join(
+                b.name for b in books
             )
+            spoken += f". I'll start with {first.name}."
         elif new_names:
-            spoken = (
-                f"Done. I made a notes file called {first.name} in {track_name}. "
-                "Anything you say now goes into it."
-            )
+            spoken = f"Done. {first.name} is open in {track_name}."
         else:
             spoken = (
                 f"{first.name} already exists, so I opened it. It has {count} "
                 f"note{'s' if count != 1 else ''}."
             )
+        if route.draft and command == "notebook_new":
+            await self._draft_notes(books, track_name, latency, lead=spoken)
+            return
         self._start_reply(_once(spoken), latency)
 
-    # ---- discuss: solve and evaluate a design or problem together ----
+    async def _handle_draft(self, route: Route, latency: TurnLatency) -> None:
+        """ "Write the notes" / "draft notes on hash maps": Aria writes starter notes."""
+        async with self.deps.sessionmaker() as db:
+            track = await svc.get_track(db, self.track)
+            assert track is not None
+            track_name = track.name
+            books: list[Notebook] = []
+            for name in route.names:
+                book, _ = await notebooks_svc.get_or_create(db, track, name)
+                self.seen_notebooks.add(book.id)
+                books.append(book)
+            if not books and self.notebook_id is not None:
+                active = await notebooks_svc.get_notebook(db, self.notebook_id)
+                books = [active] if active is not None else []
+        if not books:
+            self._start_reply(
+                _once("Which topic should I write notes on? Say write notes on binary search."),
+                latency,
+            )
+            return
+        await self._activate_notebook(books[0])
+        await self._draft_notes(books, track_name, latency)
+
+    async def _draft_notes(
+        self, books: list[Notebook], track_name: str, latency: TurnLatency, lead: str = ""
+    ) -> None:
+        """Write starter notes into each notebook. They are Aria's, so they are stored as hers and
+        unconfirmed (rule 6) and shown differently until the learner accepts them."""
+        assert self.session_id is not None
+        made: list[tuple[str, int]] = []
+        first_note: uuid.UUID | None = None
+        try:
+            async with self.deps.sessionmaker() as db:
+                track_row = await svc.get_track(db, self.track)
+                assert track_row is not None
+            for book in books:
+                drafts = await draft_node.draft_notes(
+                    self.deps,
+                    topic=book.name,
+                    track_name=track_name,
+                    track=self.track,
+                    session_id=self.session_id,
+                )
+                if not drafts:
+                    continue
+                embeddings = await self.deps.embedder.embed(
+                    [f"{d.title}\n{d.body_md}" for d in drafts]
+                )
+                items = []
+                async with self.deps.sessionmaker() as db:
+                    for draft, embedding in zip(drafts, embeddings, strict=True):
+                        event, note = await file_candidate(
+                            self.deps,
+                            db,
+                            track=track_row,
+                            title=draft.title,
+                            body_md=draft.body_md,
+                            embedding=embedding,
+                            origin=NoteOrigin.assistant,
+                            session_id=self.session_id,
+                            notebook_id=book.id,
+                        )
+                        items.append(capture_item(event, note))
+                        first_note = first_note or note.id
+                await self.out.send(NotesEvent(items=items))
+                made.append((book.name, len(items)))
+        except Exception:
+            log.exception("drafting notes failed")
+            self._start_reply(
+                _once(f"{lead} I couldn't write those notes just now.".strip()), latency
+            )
+            return
+        if first_note is not None:
+            self._spawn(self._send_note_diagram(first_note))
+        if not made:
+            self._start_reply(_once(f"{lead} I couldn't think of notes to write.".strip()), latency)
+            return
+        what = " and ".join(f"{n} notes on {name}" for name, n in made)
+        spoken = (
+            f"{lead} I wrote {what}. They're marked as mine until you confirm them. "
+            "Say recite when you want to go through them."
+        )
+        self._start_reply(_once(spoken.strip()), latency)
+
+        # ---- discuss: solve and evaluate a design or problem together ----
 
     async def start_discussion(self, topic: str) -> None:
         if self.session_id is None:
