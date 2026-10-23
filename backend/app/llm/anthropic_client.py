@@ -21,6 +21,43 @@ class AnthropicLLM(LLMClient):
             "deep": settings.llm_deep_model,
         }
         self._usage = usage
+        # Models that refuse a forced tool call ("tool_choice type tool is not supported"): for
+        # these we let the model choose, and tell it in the prompt to answer through the tool.
+        self._auto_tool_choice: set[str] = set()
+
+    async def _create_structured(
+        self,
+        model: str,
+        system: str,
+        messages: list[anthropic.types.MessageParam],
+        schema: type[T],
+    ) -> anthropic.types.Message:
+        tools: list[anthropic.types.ToolParam] = [
+            {
+                "name": "respond",
+                "description": "Return the structured result.",
+                "input_schema": schema.model_json_schema(),
+            }
+        ]
+        for _try in range(2):
+            forced = model not in self._auto_tool_choice
+            try:
+                return await self._client.messages.create(
+                    model=model,
+                    max_tokens=2048,
+                    system=system
+                    if forced
+                    else f"{system}\n\nAnswer only by calling the respond tool.",
+                    messages=messages,
+                    tools=tools,
+                    tool_choice={"type": "tool", "name": "respond"} if forced else {"type": "auto"},
+                )
+            except anthropic.BadRequestError as exc:
+                if forced and "tool_choice" in str(exc):
+                    self._auto_tool_choice.add(model)
+                    continue
+                raise
+        raise RuntimeError("unreachable")
 
     async def complete_structured(
         self,
@@ -36,20 +73,7 @@ class AnthropicLLM(LLMClient):
         last_error: ValidationError | None = None
         for _attempt in range(2):
             started = time.perf_counter()
-            response = await self._client.messages.create(
-                model=model,
-                max_tokens=2048,
-                system=system,
-                messages=messages,
-                tools=[
-                    {
-                        "name": "respond",
-                        "description": "Return the structured result.",
-                        "input_schema": schema.model_json_schema(),
-                    }
-                ],
-                tool_choice={"type": "tool", "name": "respond"},
-            )
+            response = await self._create_structured(model, system, messages, schema)
             self._usage.record(
                 session_id=session_id,
                 model=model,
@@ -57,11 +81,18 @@ class AnthropicLLM(LLMClient):
                 output_tokens=response.usage.output_tokens,
                 latency_ms=(time.perf_counter() - started) * 1000,
             )
-            payload = next((b.input for b in response.content if b.type == "tool_use"), {})
+            call = next((b for b in response.content if b.type == "tool_use"), None)
             try:
-                return schema.model_validate(payload)
+                return schema.model_validate(call.input if call is not None else {})
             except ValidationError as exc:
                 last_error = exc
+                if call is None:  # the model answered in text: ask again, through the tool
+                    messages = [
+                        *messages,
+                        {"role": "assistant", "content": response.content},
+                        {"role": "user", "content": "Answer by calling the respond tool."},
+                    ]
+                    continue
                 messages = [
                     *messages,
                     {"role": "assistant", "content": response.content},
@@ -70,9 +101,7 @@ class AnthropicLLM(LLMClient):
                         "content": [
                             {
                                 "type": "tool_result",
-                                "tool_use_id": next(
-                                    b.id for b in response.content if b.type == "tool_use"
-                                ),
+                                "tool_use_id": call.id,
                                 "is_error": True,
                                 "content": f"Invalid output, fix and retry: {exc}",
                             }
