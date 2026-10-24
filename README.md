@@ -3,6 +3,13 @@
 Voice-first learning companion (single user, local-first). The full spec and phase plan is in
 [CLAUDE.md](CLAUDE.md); deviations are logged in [DECISIONS.md](DECISIONS.md).
 
+![Recall with Aria: notebooks, notes, recitation and evaluation](docs/demo/recall-demo.gif)
+
+**Watch the 81 second demo with voiceover:**
+[recall-demo.mp4](https://github.com/VaibhavBansal26/recall/raw/main/docs/demo/recall-demo.mp4)
+(the app running on the built-in test model, so Aria's replies are canned; the music is synthesised by
+[`docs/demo/make_music.py`](docs/demo/make_music.py)).
+
 ## Status
 
 | Phase | State |

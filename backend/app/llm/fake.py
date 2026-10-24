@@ -1,6 +1,7 @@
 """Deterministic stand-in for the LLM so everything runs and tests without API keys."""
 
 import asyncio
+import os
 import re
 import uuid
 from collections.abc import AsyncIterator
@@ -428,6 +429,17 @@ class FakeLLM(LLMClient):
             purpose = "discuss_open"
         elif purpose == "discuss" and "STAGE: choose" in user:
             purpose = "discuss_choose"
+        if purpose == "ack" and os.environ.get("FAKE_VARIED_ACKS"):
+            # Only for recorded demos: a real model varies its acknowledgements.
+            self._ack_turn = getattr(self, "_ack_turn", -1) + 1
+            scripts["ack"] = (
+                (
+                    ("Got it, noted. ", "Keep going."),
+                    ("Mm, makes sense. ", "Go on."),
+                    ("Okay, I've got that. ", "What's next?"),
+                    ("Noted. ", "I'm listening."),
+                )[self._ack_turn % 4]
+            )
         for token in scripts.get(purpose, scripts["ack"]):
             await asyncio.sleep(self._delay_s)
             yield token
